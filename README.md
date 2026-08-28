@@ -3,5 +3,5 @@
 
 ---
 
-Scrum Master - Stephen Johnson /
+Scrum Master - Stephen Johnson/
 Product Owner - Michael Taillon
