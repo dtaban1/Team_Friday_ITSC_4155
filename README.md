@@ -5,3 +5,4 @@
 
 Scrum Master - Stephen Johnson/
 Product Owner - Michael Taillon
+Developers - David Taban, Prahlad Rai
