@@ -1,7 +1,5 @@
 # Team_Friday_ITSC_4155
 ## Team Roles
 
----
-
-Scrum Master - Stephen Johnson/
-Product Owner - Michael Taillon
+<b>Scrum Master</b> - Stephen Johnson<br>
+<b>Product Owner</b> - Michael Taillon
