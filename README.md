@@ -3,6 +3,6 @@
 
 ---
 
-Scrum Master - Stephen Johnson/
-Product Owner - Michael Taillon
-Developers - David Taban, Prahlad Rai
+<b>Scrum Master</b> - Stephen Johnson<br>
+<b>Product Owner</b> - Michael Taillon<br>
+<b>Developers</b> - David Taban, Prahlad Rai
