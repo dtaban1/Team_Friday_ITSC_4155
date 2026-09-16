@@ -17,7 +17,6 @@ function Signup() {
   const [showConfirmPassword, setShowConfirmPassword] =
     useState(false);
 
-
   const handleChange = (event) => {
     const { name, value } = event.target;
 
@@ -26,7 +25,6 @@ function Signup() {
       [name]: value,
     }));
   };
-
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -47,29 +45,12 @@ function Signup() {
     );
   };
 
-
   return (
-    <main className="login-page">
-
-      <section className="login-shell signup-shell">
-
-        {/* LEFT SIDE */}
-        <aside className="login-showcase">
-
-          <Link
-            className="login-brand"
-            to="/"
-          >
-            <img
-              src="/ontrack-logo.png"
-              alt="OnTrack"
-            />
-          </Link>
-
-
-          <div className="login-showcase-content">
-
-            <span className="login-badge">
+    <main className="auth-page">
+      <section className="auth-shell auth-shell-signup">
+        <aside className="auth-side-panel">
+          <div className="auth-side-content">
+            <span className="auth-badge">
               Your progress starts here
             </span>
 
@@ -80,85 +61,44 @@ function Signup() {
             </h2>
 
             <p>
-              Create your free OnTrack account and turn
+              Create your OnTrack account and turn
               everyday actions into meaningful progress.
             </p>
 
-
-            <div className="login-benefits">
-
-              <div className="login-benefit">
-
-                <span className="login-benefit-icon">
-                  ✓
-                </span>
-
-                <span>
-                  Organize tasks and responsibilities
-                </span>
-
+            <div className="auth-feature-list">
+              <div className="auth-feature-item">
+                <span>✓</span>
+                Organize tasks and responsibilities
               </div>
 
-
-              <div className="login-benefit">
-
-                <span className="login-benefit-icon">
-                  ✓
-                </span>
-
-                <span>
-                  Track habits and maintain streaks
-                </span>
-
+              <div className="auth-feature-item">
+                <span>✓</span>
+                Track habits and maintain streaks
               </div>
 
-
-              <div className="login-benefit">
-
-                <span className="login-benefit-icon">
-                  ✓
-                </span>
-
-                <span>
-                  Follow your goals and progress
-                </span>
-
+              <div className="auth-feature-item">
+                <span>✓</span>
+                Follow your goals and progress
               </div>
-
             </div>
-
           </div>
-
-
-          <p className="login-showcase-footer">
-            OnTrack · Start today. Grow every day.
-          </p>
-
         </aside>
 
-
-        {/* RIGHT SIDE */}
-        <section className="login-form-panel signup-form-panel">
-
-          <div className="login-mobile-brand">
-
-            <Link to="/">
-
+        <section className="auth-form-panel">
+          <div className="auth-card">
+            <Link
+              className="auth-logo"
+              to="/"
+              aria-label="Back to OnTrack home"
+            >
               <img
                 src="/ontrack-logo.png"
                 alt="OnTrack"
               />
-
             </Link>
 
-          </div>
-
-
-          <div className="login-card signup-card">
-
-            <div className="login-heading">
-
-              <span className="login-kicker">
+            <div className="auth-heading">
+              <span className="auth-kicker">
                 Get started
               </span>
 
@@ -167,89 +107,55 @@ function Signup() {
               </h1>
 
               <p>
-                Create your OnTrack account and start
-                building better routines today.
+                Start building better routines
+                and staying on track today.
               </p>
-
             </div>
 
-
             <form
-              className="login-form signup-form"
+              className="auth-form signup-form"
               onSubmit={handleSubmit}
             >
-
-              {/* NAME */}
-              <div className="login-form-group">
-
+              <div className="auth-form-group">
                 <label htmlFor="signup-name">
                   Full name
                 </label>
 
-                <div className="login-input-wrap">
-
-                  <span className="login-input-icon">
-                    U
-                  </span>
-
-                  <input
-                    id="signup-name"
-                    name="name"
-                    type="text"
-                    value={formData.name}
-                    onChange={handleChange}
-                    placeholder="Enter your full name"
-                    autoComplete="name"
-                    required
-                  />
-
-                </div>
-
+                <input
+                  id="signup-name"
+                  name="name"
+                  type="text"
+                  value={formData.name}
+                  onChange={handleChange}
+                  placeholder="Enter your full name"
+                  autoComplete="name"
+                  required
+                />
               </div>
 
-
-              {/* EMAIL */}
-              <div className="login-form-group">
-
+              <div className="auth-form-group">
                 <label htmlFor="signup-email">
                   Email address
                 </label>
 
-                <div className="login-input-wrap">
-
-                  <span className="login-input-icon">
-                    @
-                  </span>
-
-                  <input
-                    id="signup-email"
-                    name="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    placeholder="you@example.com"
-                    autoComplete="email"
-                    required
-                  />
-
-                </div>
-
+                <input
+                  id="signup-email"
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  required
+                />
               </div>
 
-
-              {/* PASSWORD */}
-              <div className="login-form-group">
-
+              <div className="auth-form-group">
                 <label htmlFor="signup-password">
                   Password
                 </label>
 
-                <div className="login-input-wrap">
-
-                  <span className="login-input-icon login-dot">
-                    ●
-                  </span>
-
+                <div className="auth-password-wrap">
                   <input
                     id="signup-password"
                     name="password"
@@ -267,7 +173,7 @@ function Signup() {
                   />
 
                   <button
-                    className="login-password-toggle"
+                    className="auth-password-toggle"
                     type="button"
                     onClick={() =>
                       setShowPassword(
@@ -275,31 +181,25 @@ function Signup() {
                       )
                     }
                   >
-                    {showPassword ? "Hide" : "Show"}
+                    {
+                      showPassword
+                        ? "Hide"
+                        : "Show"
+                    }
                   </button>
-
                 </div>
 
-                <span className="password-hint">
+                <span className="auth-hint">
                   Use at least 8 characters.
                 </span>
-
               </div>
 
-
-              {/* CONFIRM PASSWORD */}
-              <div className="login-form-group">
-
+              <div className="auth-form-group">
                 <label htmlFor="signup-confirm-password">
                   Confirm password
                 </label>
 
-                <div className="login-input-wrap">
-
-                  <span className="login-input-icon login-dot">
-                    ●
-                  </span>
-
+                <div className="auth-password-wrap">
                   <input
                     id="signup-confirm-password"
                     name="confirmPassword"
@@ -319,7 +219,7 @@ function Signup() {
                   />
 
                   <button
-                    className="login-password-toggle"
+                    className="auth-password-toggle"
                     type="button"
                     onClick={() =>
                       setShowConfirmPassword(
@@ -333,64 +233,47 @@ function Signup() {
                         : "Show"
                     }
                   </button>
-
                 </div>
-
               </div>
 
-
-              {/* ERROR */}
               {error && (
                 <p
-                  className="signup-error"
+                  className="auth-error"
                   role="alert"
                 >
                   {error}
                 </p>
               )}
 
-
-              {/* CREATE ACCOUNT */}
               <button
-                className="login-submit"
+                className="auth-submit"
                 type="submit"
               >
                 Create account
                 <span>→</span>
               </button>
-
             </form>
 
-
-            <div className="login-divider">
-
+            <div className="auth-divider">
               <span>
                 Already have an account?
               </span>
-
             </div>
 
-
             <Link
-              className="login-create-account"
+              className="auth-secondary-button"
               to="/login"
             >
               Log in
             </Link>
 
-
-            <p className="login-privacy">
-              By creating an account, you can begin
-              organizing your tasks, habits, events,
-              and goals with OnTrack.
+            <p className="auth-footer-text">
+              Create your account and start organizing
+              your tasks, habits, events, and goals.
             </p>
-
           </div>
-
         </section>
-
       </section>
-
     </main>
   );
 }
