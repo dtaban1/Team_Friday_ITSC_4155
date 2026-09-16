@@ -25,25 +25,12 @@ function Login() {
   };
 
   return (
-    <main className="login-page">
-
-      <section className="login-shell">
-
-        {/* LEFT SIDE */}
-        <aside className="login-showcase">
-
-          <Link
-            className="login-brand"
-            to="/"
-            aria-label="Back to OnTrack home"
-          >
-            <img src="/ontrack-logo.png" alt="OnTrack" />
-          </Link>
-
-          <div className="login-showcase-content">
-
-            <span className="login-badge">
-              Build better days, one step at a time
+    <main className="auth-page">
+      <section className="auth-shell">
+        <aside className="auth-side-panel">
+          <div className="auth-side-content">
+            <span className="auth-badge">
+              Small steps. Real progress.
             </span>
 
             <h2>
@@ -53,52 +40,44 @@ function Login() {
             </h2>
 
             <p>
-              Organize your tasks, build strong habits, and keep track
-              of the goals that matter most—all in one place.
+              Organize your tasks, build strong habits,
+              and keep track of the goals that matter most.
             </p>
 
-            <div className="login-benefits">
-
-              <div className="login-benefit">
-                <span className="login-benefit-icon">✓</span>
-                <span>Plan your day with clarity</span>
+            <div className="auth-feature-list">
+              <div className="auth-feature-item">
+                <span>✓</span>
+                Plan your day with clarity
               </div>
 
-              <div className="login-benefit">
-                <span className="login-benefit-icon">✓</span>
-                <span>Build habits that actually stick</span>
+              <div className="auth-feature-item">
+                <span>✓</span>
+                Build habits that actually stick
               </div>
 
-              <div className="login-benefit">
-                <span className="login-benefit-icon">✓</span>
-                <span>See your progress over time</span>
+              <div className="auth-feature-item">
+                <span>✓</span>
+                See your progress over time
               </div>
-
             </div>
-
           </div>
-
-          <p className="login-showcase-footer">
-            OnTrack · Make progress feel simple.
-          </p>
-
         </aside>
 
-
-        {/* RIGHT SIDE */}
-        <section className="login-form-panel">
-
-          <div className="login-mobile-brand">
-            <Link to="/">
-              <img src="/ontrack-logo.png" alt="OnTrack" />
+        <section className="auth-form-panel">
+          <div className="auth-card">
+            <Link
+              className="auth-logo"
+              to="/"
+              aria-label="Back to OnTrack home"
+            >
+              <img
+                src="/ontrack-logo.png"
+                alt="OnTrack"
+              />
             </Link>
-          </div>
 
-          <div className="login-card">
-
-            <div className="login-heading">
-
-              <span className="login-kicker">
+            <div className="auth-heading">
+              <span className="auth-kicker">
                 Welcome back
               </span>
 
@@ -107,72 +86,47 @@ function Login() {
               </h1>
 
               <p>
-                Enter your details below to continue your
-                OnTrack journey.
+                Enter your details below to continue
+                your OnTrack journey.
               </p>
-
             </div>
 
-
             <form
-              className="login-form"
+              className="auth-form"
               onSubmit={handleSubmit}
             >
-
-              {/* EMAIL */}
-              <div className="login-form-group">
-
+              <div className="auth-form-group">
                 <label htmlFor="login-email">
                   Email address
                 </label>
 
-                <div className="login-input-wrap">
-
-                  <span className="login-input-icon">
-                    @
-                  </span>
-
-                  <input
-                    id="login-email"
-                    name="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    placeholder="you@example.com"
-                    autoComplete="email"
-                    required
-                  />
-
-                </div>
-
+                <input
+                  id="login-email"
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  required
+                />
               </div>
 
-
-              {/* PASSWORD */}
-              <div className="login-form-group">
-
-                <div className="login-label-row">
-
+              <div className="auth-form-group">
+                <div className="auth-label-row">
                   <label htmlFor="login-password">
                     Password
                   </label>
 
                   <button
-                    className="login-text-button"
+                    className="auth-text-button"
                     type="button"
                   >
                     Forgot password?
                   </button>
-
                 </div>
 
-
-                <div className="login-input-wrap">
-
-                  <span className="login-input-icon login-dot">
-                    ●
-                  </span>
-
+                <div className="auth-password-wrap">
                   <input
                     id="login-password"
                     name="password"
@@ -189,7 +143,7 @@ function Login() {
                   />
 
                   <button
-                    className="login-password-toggle"
+                    className="auth-password-toggle"
                     type="button"
                     onClick={() =>
                       setShowPassword(
@@ -197,68 +151,50 @@ function Login() {
                       )
                     }
                   >
-                    {showPassword ? "Hide" : "Show"}
+                    {
+                      showPassword
+                        ? "Hide"
+                        : "Show"
+                    }
                   </button>
-
                 </div>
-
               </div>
 
-
-              {/* REMEMBER ME */}
-              <div className="login-options">
-
-                <label className="login-remember">
-
+              <div className="auth-options">
+                <label className="auth-remember">
                   <input type="checkbox" />
-
-                  <span>
-                    Remember me
-                  </span>
-
+                  <span>Remember me</span>
                 </label>
-
               </div>
 
-
-              {/* LOGIN BUTTON */}
               <button
-                className="login-submit"
+                className="auth-submit"
                 type="submit"
               >
                 Log in
                 <span>→</span>
               </button>
-
             </form>
 
-
-            <div className="login-divider">
-              <span>
-                New to OnTrack?
-              </span>
+            <div className="auth-divider">
+              <span>New to OnTrack?</span>
             </div>
 
-
             <Link
-              className="login-create-account"
+              className="auth-secondary-button"
               to="/signup"
             >
               Create an account
             </Link>
 
-
-            <p className="login-privacy">
-              Keep your account information secure and
-              continue building better habits with OnTrack.
+            <p className="auth-footer-text">
+              Keep your account information secure
+              and continue building better habits
+              with OnTrack.
             </p>
-
           </div>
-
         </section>
-
       </section>
-
     </main>
   );
 }
