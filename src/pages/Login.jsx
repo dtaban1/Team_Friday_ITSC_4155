@@ -18,11 +18,28 @@ function Login() {
     }));
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
 
-    console.log("Login form submitted:", formData);
-  };
+    try {
+      const response = await fetch("http://localhost:5000/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.log(data.message);
+        return;
+      }
+
+      console.log("Login successful:", data);
+    } catch (err) {
+      console.error("Login request failed:", err);
+    }
+};
 
   return (
     <main className="auth-page">
