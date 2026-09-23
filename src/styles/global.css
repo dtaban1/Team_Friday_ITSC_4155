@@ -1531,6 +1531,11 @@ a {
 
 .habit-header .auth-logo {
   flex: 0 0 auto;
+  margin: 0;
+}
+
+.habit-header-copy {
+  flex: 1;
 }
 
 .habit-header h1 {
@@ -1542,6 +1547,16 @@ a {
 .habit-message,
 .habit-history p {
   color: var(--text-muted);
+}
+
+.habit-logout {
+  padding: 10px 16px;
+  color: #173a70;
+  background: white;
+  border: 1px solid #cddbe8;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 800;
 }
 
 .habit-form {

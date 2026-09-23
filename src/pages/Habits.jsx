@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
-// Temporary demo user. Replace this with the logged-in user's id when auth is connected.
-const DEMO_USER_ID = 1;
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 function localDate() {
   const now = new Date();
@@ -11,7 +9,15 @@ function localDate() {
   return new Date(now.getTime() - offset * 60000).toISOString().slice(0, 10);
 }
 
+function getLoggedInUserId() {
+  const storedId = sessionStorage.getItem("ontrackUserId") || localStorage.getItem("ontrackUserId");
+  const userId = Number(storedId);
+  return Number.isInteger(userId) && userId > 0 ? userId : null;
+}
+
 function Habits() {
+  const navigate = useNavigate();
+  const userId = getLoggedInUserId();
   const [date, setDate] = useState(localDate());
   const [water, setWater] = useState("");
   const [sleep, setSleep] = useState("");
@@ -24,19 +30,37 @@ function Habits() {
   );
 
   const loadEntries = async () => {
+    if (!userId) return;
+
     try {
-      const response = await fetch(`${API_URL}/api/users/${DEMO_USER_ID}/habits`);
-      if (!response.ok) throw new Error();
-      setEntries(await response.json());
-      setMessage("");
-    } catch {
+      const response = await fetch(`${API_URL}/api/users/${userId}/habits`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          localStorage.removeItem("ontrackUserId");
+          sessionStorage.removeItem("ontrackUserId");
+          navigate("/login", { replace: true });
+          return;
+        }
+        throw new Error(data.message || "Could not load habits.");
+      }
+
+      setEntries(data);
+    } catch (error) {
+      console.error(error);
       setMessage("Could not reach the habit API. Make sure MySQL and the server are running.");
     }
   };
 
   useEffect(() => {
+    if (!userId) {
+      navigate("/login", { replace: true });
+      return;
+    }
+
     loadEntries();
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     const waterEntry = todaysEntries.find((entry) => entry.habit === "water");
@@ -46,10 +70,10 @@ function Habits() {
   }, [todaysEntries]);
 
   const saveHabit = async (habit, value) => {
-    if (value === "") return;
+    if (value === "" || !userId) return;
 
     const response = await fetch(
-      `${API_URL}/api/users/${DEMO_USER_ID}/habits/${habit}`,
+      `${API_URL}/api/users/${userId}/habits/${habit}`,
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -57,22 +81,38 @@ function Habits() {
       }
     );
 
-    if (!response.ok) throw new Error();
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Could not save habit.");
+    }
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    setMessage("");
+
     try {
       await Promise.all([
         saveHabit("water", water),
         saveHabit("sleep", sleep),
       ]);
-      setMessage("Habits saved.");
       await loadEntries();
-    } catch {
+      setMessage("Habits saved.");
+    } catch (error) {
+      console.error(error);
       setMessage("Could not save habits. Check the API and database connection.");
     }
   };
+
+  const handleLogout = () => {
+    localStorage.removeItem("ontrackUserId");
+    sessionStorage.removeItem("ontrackUserId");
+    navigate("/login");
+  };
+
+  if (!userId) {
+    return null;
+  }
 
   return (
     <main className="habit-page">
@@ -81,11 +121,14 @@ function Habits() {
           <Link className="auth-logo" to="/">
             <img src="/ontrack-logo.png" alt="OnTrack" />
           </Link>
-          <div>
+          <div className="habit-header-copy">
             <span className="auth-kicker">Daily tracking</span>
             <h1>Water & Sleep</h1>
-            <p>Demo user #{DEMO_USER_ID}. Replace this ID with your logged-in user later.</p>
+            <p>Your habit entries are saved to your signed-in account.</p>
           </div>
+          <button className="habit-logout" type="button" onClick={handleLogout}>
+            Log out
+          </button>
         </header>
 
         <form className="habit-form" onSubmit={handleSubmit}>
