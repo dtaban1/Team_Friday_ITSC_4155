@@ -1,18 +1,48 @@
 # Team_Friday_ITSC_4155
+
 ## Team Roles
-<b>Scrum Master</b> - Stephen Johnson<br>
-<b>Product Owner</b> - Michael Taillon<br>
-<b>Developers</b> - David Taban, Prahlad Rai
+
+<b>Scrum Master</b> - Stephen Johnson<br> <b>Product Owner</b> - Michael Taillon<br> <b>Developers</b> - David Taban, Prahlad Rai
 
 # Database Setup Guide (Local MySQL)
 
-This project uses one local MySQL database, `ontrack_db`, for both user accounts and habit tracking. Habit entries are linked directly to the account that created them through `habit_entries.user_id -> users.id`.
+This project uses a local MySQL database, `ontrack_db`, for both user accounts and habit tracking.
+
+Each teammate runs their **own MySQL server locally** — we do not share one central database yet.
+
+Habit entries are linked directly to the account that created them through:
+
+`habit_entries.user_id -> users.id`
 
 ## 1. Install MySQL
 
-Install MySQL Community Server and keep the default port (`3306`) unless you need a different one.
+Download **MySQL Community Server** from:
 
-## 2. Create the database and tables
+https://dev.mysql.com/downloads/installer/
+
+* Choose the **web installer** if available.
+* Setup type: **Developer Default** if available, otherwise **Server only**.
+* Config type: **Development Computer**.
+* Leave the default port (**3306**) unless something else is already using it.
+* Set your own **root password** and remember it. Your teammates' passwords do not need to match yours.
+
+## 2. Verify the install
+
+Open a terminal and run:
+
+```bash
+mysql --version
+```
+
+If you get `"not recognized"` on Windows, add MySQL's `bin` folder to your system PATH:
+
+```text
+C:\Program Files\MySQL\MySQL Server 8.0\bin
+```
+
+Then restart your terminal.
+
+## 3. Create the database and tables
 
 From the project root, connect to MySQL:
 
@@ -20,7 +50,9 @@ From the project root, connect to MySQL:
 mysql -u root -p
 ```
 
-Then run the included schema:
+Enter your root password when prompted.
+
+Then run the included database schema:
 
 ```sql
 SOURCE database.sql;
@@ -28,13 +60,20 @@ SOURCE database.sql;
 
 The schema creates:
 
-- `users` for login/signup credentials
-- `habit_types` for supported habits such as water and sleep
-- `habit_entries` for a user's daily habit values
+* `users` for login/signup credentials
+* `habit_types` for supported habits such as water and sleep
+* `habit_entries` for each user's daily habit values
 
-Each habit entry has a real foreign key to `users.id`, and deleting a user will also delete that user's habit entries.
+Each habit entry has a foreign key to `users.id`. Deleting a user will also delete that user's habit entries.
 
-## 3. Configure the backend
+To verify the tables were created:
+
+```sql
+USE ontrack_db;
+SHOW TABLES;
+```
+
+## 4. Configure the backend
 
 Inside the `server` folder, copy `.env.example` to `.env` and set your local MySQL password:
 
@@ -47,46 +86,64 @@ DB_NAME=ontrack_db
 API_PORT=5000
 ```
 
-Never commit `server/.env`; it is ignored by Git.
+Replace `your_own_mysql_password_here` with your own local MySQL root password.
 
-## 4. Install dependencies
+**Never commit `server/.env` to GitHub.** It should remain listed in `.gitignore`.
 
-Frontend, from the project root:
+## 5. Install dependencies
+
+From the project root, install frontend dependencies:
 
 ```bash
 npm install
 ```
 
-Backend:
+Then install backend dependencies:
 
 ```bash
 cd server
 npm install
 ```
 
-## 5. Run the app
+## 6. Run the backend
 
-Start the backend from `server`:
+From the `server` folder:
 
 ```bash
 node index.js
 ```
 
-It defaults to `http://localhost:5000`.
+The backend defaults to:
 
-In a second terminal, start Vite from the project root:
+```text
+http://localhost:5000
+```
+
+You should see something similar to:
+
+```text
+Server running on port 5000
+```
+
+## 7. Run the frontend
+
+In a separate terminal, from the project root:
 
 ```bash
 npm run dev
 ```
 
-Vite normally opens at `http://localhost:5173`.
+Vite normally opens the site at:
 
-## 6. Test the user/habit connection
+```text
+http://localhost:5173
+```
 
-1. Create an account at `/signup`.
-2. Log in at `/login`.
-3. A successful login returns that account's `users.id`; the frontend stores it for the current login and opens `/habits`.
+## 8. Test the user and habit connection
+
+1. Go to `http://localhost:5173/signup` and create an account.
+2. Log in at `http://localhost:5173/login`.
+3. A successful login returns that account's `users.id`. The frontend stores it for the current login and opens `/habits`.
 4. Save water or sleep values on `/habits`.
 5. Verify the relationship in MySQL:
 
@@ -104,10 +161,24 @@ JOIN habit_types ht ON ht.id = he.habit_type_id
 ORDER BY he.entry_date DESC, he.id DESC;
 ```
 
-## API URL override
+## API URL Override
 
-The frontend defaults to `http://localhost:5000`. If you change `API_PORT`, create a root `.env` file with a matching URL, for example:
+The frontend defaults to:
+
+```text
+http://localhost:5000
+```
+
+If you change `API_PORT`, create a root `.env` file with a matching frontend API URL.
+
+For example:
 
 ```env
 VITE_API_URL=http://localhost:5001
 ```
+
+## Notes
+
+* Everyone's local database is separate. Signing up on your machine will not create an account in a teammate's database.
+* Passwords are hashed with `bcrypt` before storage and should never be stored as plain text.
+* If the project later moves to a shared/cloud database, this guide should be updated with the new database configuration.
