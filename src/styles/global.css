@@ -1502,3 +1502,125 @@ a {
   }
 
 }
+
+/* =========================================
+   HABIT TRACKER
+========================================= */
+.habit-page {
+  min-height: 100vh;
+  padding: 48px 20px;
+  background: #f6fbff;
+}
+
+.habit-shell {
+  width: min(900px, 100%);
+  margin: 0 auto;
+  padding: 32px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  box-shadow: 0 18px 50px rgba(17, 47, 102, 0.08);
+}
+
+.habit-header {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  margin-bottom: 28px;
+}
+
+.habit-header .auth-logo {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.habit-header-copy {
+  flex: 1;
+}
+
+.habit-header h1 {
+  margin: 4px 0 6px;
+  color: var(--navy);
+}
+
+.habit-header p,
+.habit-message,
+.habit-history p {
+  color: var(--text-muted);
+}
+
+.habit-logout {
+  padding: 10px 16px;
+  color: #173a70;
+  background: white;
+  border: 1px solid #cddbe8;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.habit-form {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  padding: 24px;
+  border-radius: 18px;
+  background: #f8fbff;
+  border: 1px solid var(--line);
+}
+
+.habit-form label {
+  display: grid;
+  gap: 8px;
+  font-weight: 800;
+  color: var(--navy);
+}
+
+.habit-form input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--navy);
+}
+
+.habit-form .auth-submit,
+.habit-message {
+  grid-column: 1 / -1;
+}
+
+.habit-history {
+  margin-top: 30px;
+}
+
+.habit-history h2 {
+  color: var(--navy);
+}
+
+.habit-table-wrap {
+  overflow-x: auto;
+}
+
+.habit-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.habit-table th,
+.habit-table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.habit-table th {
+  color: var(--navy);
+}
+
+@media (max-width: 700px) {
+  .habit-shell { padding: 22px; }
+  .habit-header { align-items: flex-start; flex-direction: column; }
+  .habit-form { grid-template-columns: 1fr; }
+}
