@@ -8,16 +8,21 @@ const pool = require("./db");
 
 const app = express();
 const isProduction = process.env.NODE_ENV === "production";
+const port = process.env.PORT || 5000;
 
 if (isProduction && !process.env.SESSION_SECRET) {
-  throw new Error("SESSION_SECRET must be set in production");
+  throw new Error(
+    "SESSION_SECRET must be set in production"
+  );
 }
 
 app.set("trust proxy", 1);
 
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin:
+      process.env.CLIENT_URL ||
+      "http://localhost:5173",
     credentials: true,
   })
 );
@@ -28,7 +33,8 @@ app.use(
   session({
     name: "ontrack.sid",
     secret:
-      process.env.SESSION_SECRET || "ontrack-local-development-secret",
+      process.env.SESSION_SECRET ||
+      "ontrack-local-development-secret",
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -39,6 +45,47 @@ app.use(
     },
   })
 );
+
+/*
+ * Convert the user ID from the URL into a valid number.
+ */
+function parseUserId(rawUserId) {
+  const userId = Number(rawUserId);
+
+  return Number.isInteger(userId) && userId > 0
+    ? userId
+    : null;
+}
+
+/*
+ * Check whether a user exists in the database.
+ */
+async function userExists(userId) {
+  const [rows] = await pool.query(
+    "SELECT id FROM users WHERE id = ? LIMIT 1",
+    [userId]
+  );
+
+  return rows.length > 0;
+}
+
+// HEALTH CHECK
+app.get("/api/health", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+
+    res.json({
+      ok: true,
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      ok: false,
+      message: "Database connection failed",
+    });
+  }
+});
 
 // SIGNUP
 app.post("/api/signup", async (req, res) => {
@@ -58,14 +105,19 @@ app.post("/api/signup", async (req, res) => {
 
     if (existing.length > 0) {
       return res.status(409).json({
-        message: "An account with that email already exists",
+        message:
+          "An account with that email already exists",
       });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(
+      password,
+      10
+    );
 
     const [result] = await pool.query(
-      "INSERT INTO users (email, password_hash) VALUES (?, ?)",
+      `INSERT INTO users (email, password_hash)
+       VALUES (?, ?)`,
       [email, passwordHash]
     );
 
@@ -94,7 +146,9 @@ app.post("/api/login", async (req, res) => {
 
   try {
     const [rows] = await pool.query(
-      "SELECT id, email, password_hash FROM users WHERE email = ?",
+      `SELECT id, email, password_hash
+       FROM users
+       WHERE email = ?`,
       [email]
     );
 
@@ -175,8 +229,226 @@ app.post("/api/logout", (req, res) => {
   });
 });
 
-const port = process.env.PORT || 5000;
+// HABIT TYPES
+app.get("/api/habits", async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, name, unit, description
+       FROM habit_types
+       ORDER BY id`
+    );
+
+    res.json(rows);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      message: "Could not load habit types",
+    });
+  }
+});
+
+// HABITS FOR ONE USER
+app.get(
+  "/api/users/:userId/habits",
+  async (req, res) => {
+    const userId = parseUserId(
+      req.params.userId
+    );
+
+    if (!userId) {
+      return res.status(400).json({
+        message: "Invalid user id",
+      });
+    }
+
+    try {
+      if (!(await userExists(userId))) {
+        return res.status(404).json({
+          message: "User not found",
+        });
+      }
+
+      const [rows] = await pool.query(
+        `SELECT
+           he.id,
+           he.user_id AS userId,
+           ht.name AS habit,
+           ht.unit,
+           he.entry_date AS entryDate,
+           CAST(he.value AS DOUBLE) AS value,
+           he.notes
+         FROM habit_entries he
+         JOIN habit_types ht
+           ON ht.id = he.habit_type_id
+         WHERE he.user_id = ?
+         ORDER BY
+           he.entry_date DESC,
+           ht.name ASC`,
+        [userId]
+      );
+
+      res.json(rows);
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        message: "Could not load habit entries",
+      });
+    }
+  }
+);
+
+// CREATE OR UPDATE A USER'S HABIT ENTRY
+app.put(
+  "/api/users/:userId/habits/:habitName",
+  async (req, res) => {
+    const userId = parseUserId(
+      req.params.userId
+    );
+
+    const habitName = String(
+      req.params.habitName || ""
+    ).toLowerCase();
+
+    const {
+      entryDate,
+      value,
+      notes = null,
+    } = req.body;
+
+    const numericValue = Number(value);
+
+    if (!userId) {
+      return res.status(400).json({
+        message: "Invalid user id",
+      });
+    }
+
+    if (
+      !entryDate ||
+      value === "" ||
+      value === null ||
+      value === undefined ||
+      Number.isNaN(numericValue) ||
+      numericValue < 0
+    ) {
+      return res.status(400).json({
+        message:
+          "entryDate and a non-negative value are required",
+      });
+    }
+
+    try {
+      if (!(await userExists(userId))) {
+        return res.status(404).json({
+          message: "User not found",
+        });
+      }
+
+      const [habitRows] = await pool.query(
+        `SELECT id, name, unit
+         FROM habit_types
+         WHERE name = ?
+         LIMIT 1`,
+        [habitName]
+      );
+
+      if (habitRows.length === 0) {
+        return res.status(404).json({
+          message: "Unknown habit type",
+        });
+      }
+
+      const habit = habitRows[0];
+
+      await pool.query(
+        `INSERT INTO habit_entries
+           (
+             user_id,
+             habit_type_id,
+             entry_date,
+             value,
+             notes
+           )
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           value = VALUES(value),
+           notes = VALUES(notes)`,
+        [
+          userId,
+          habit.id,
+          entryDate,
+          numericValue,
+          notes,
+        ]
+      );
+
+      res.json({
+        userId,
+        habit: habit.name,
+        unit: habit.unit,
+        entryDate,
+        value: numericValue,
+        notes,
+      });
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        message: "Could not save habit entry",
+      });
+    }
+  }
+);
+
+// DELETE ONE USER'S HABIT ENTRY
+app.delete(
+  "/api/users/:userId/habits/:habitName/:entryDate",
+  async (req, res) => {
+    const userId = parseUserId(
+      req.params.userId
+    );
+
+    const habitName = String(
+      req.params.habitName || ""
+    ).toLowerCase();
+
+    const { entryDate } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({
+        message: "Invalid user id",
+      });
+    }
+
+    try {
+      const [result] = await pool.query(
+        `DELETE he
+         FROM habit_entries he
+         JOIN habit_types ht
+           ON ht.id = he.habit_type_id
+         WHERE he.user_id = ?
+           AND ht.name = ?
+           AND he.entry_date = ?`,
+        [userId, habitName, entryDate]
+      );
+
+      res.json({
+        deleted: result.affectedRows > 0,
+      });
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        message: "Could not delete habit entry",
+      });
+    }
+  }
+);
 
 app.listen(port, () => {
-  console.log(`OnTrack API running on port ${port}`);
+  console.log(
+    `Server running on port ${port}`
+  );
 });

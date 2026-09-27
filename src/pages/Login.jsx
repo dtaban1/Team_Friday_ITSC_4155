@@ -15,6 +15,8 @@ function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -29,8 +31,8 @@ function Login() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-
     setError("");
+
     setIsSubmitting(true);
 
     try {
@@ -200,7 +202,11 @@ function Login() {
 
               <div className="auth-options">
                 <label className="auth-remember">
-                  <input type="checkbox" />
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(event) => setRememberMe(event.target.checked)}
+                  />
                   <span>Remember me</span>
                 </label>
               </div>
