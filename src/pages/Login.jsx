@@ -1,13 +1,18 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 function Login() {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
 
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [error, setError] = useState("");
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -20,9 +25,10 @@ function Login() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    setError("");
 
     try {
-      const response = await fetch("http://localhost:5000/api/login", {
+      const response = await fetch(`${API_URL}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -31,15 +37,21 @@ function Login() {
       const data = await response.json();
 
       if (!response.ok) {
-        console.log(data.message);
+        setError(data.message || "Invalid email or password.");
         return;
       }
 
-      console.log("Login successful:", data);
+      localStorage.removeItem("ontrackUserId");
+      sessionStorage.removeItem("ontrackUserId");
+
+      const storage = rememberMe ? localStorage : sessionStorage;
+      storage.setItem("ontrackUserId", String(data.userId));
+      navigate("/habits");
     } catch (err) {
+      setError("Could not connect to the server. Please try again.");
       console.error("Login request failed:", err);
     }
-};
+  };
 
   return (
     <main className="auth-page">
@@ -179,10 +191,16 @@ function Login() {
 
               <div className="auth-options">
                 <label className="auth-remember">
-                  <input type="checkbox" />
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(event) => setRememberMe(event.target.checked)}
+                  />
                   <span>Remember me</span>
                 </label>
               </div>
+
+              {error && <p className="auth-error">{error}</p>}
 
               <button
                 className="auth-submit"
