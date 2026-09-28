@@ -1,18 +1,22 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 function Login() {
   const navigate = useNavigate();
+
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
 
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -21,35 +25,52 @@ function Login() {
       ...current,
       [name]: value,
     }));
+
+    setError("");
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
 
+    setIsSubmitting(true);
+
     try {
       const response = await fetch(`${API_URL}/api/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
         body: JSON.stringify(formData),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.message || "Invalid email or password.");
+        if (response.status === 401) {
+          setError("Invalid email or password.");
+        } else {
+          setError(
+            data.message ||
+              "Login is unavailable. Please try again."
+          );
+        }
+
         return;
       }
 
-      localStorage.removeItem("ontrackUserId");
-      sessionStorage.removeItem("ontrackUserId");
+      navigate("/", {
+        replace: true,
+      });
+    } catch (error) {
+      console.error("Login request failed:", error);
 
-      const storage = rememberMe ? localStorage : sessionStorage;
-      storage.setItem("ontrackUserId", String(data.userId));
-      navigate("/habits");
-    } catch (err) {
-      setError("Could not connect to the server. Please try again.");
-      console.error("Login request failed:", err);
+      setError(
+        "Login is unavailable. Please check your connection and try again."
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -69,8 +90,8 @@ function Login() {
             </h2>
 
             <p>
-              Organize your tasks, build strong habits,
-              and keep track of the goals that matter most.
+              Organize your tasks, build strong habits, and keep
+              track of the goals that matter most.
             </p>
 
             <div className="auth-feature-list">
@@ -99,10 +120,7 @@ function Login() {
               to="/"
               aria-label="Back to OnTrack home"
             >
-              <img
-                src="/ontrack-logo.png"
-                alt="OnTrack"
-              />
+              <img src="/ontrack-logo.png" alt="OnTrack" />
             </Link>
 
             <div className="auth-heading">
@@ -110,13 +128,11 @@ function Login() {
                 Welcome back
               </span>
 
-              <h1>
-                Log in to your account
-              </h1>
+              <h1>Log in to your account</h1>
 
               <p>
-                Enter your details below to continue
-                your OnTrack journey.
+                Enter your details below to continue your
+                OnTrack journey.
               </p>
             </div>
 
@@ -160,9 +176,7 @@ function Login() {
                     id="login-password"
                     name="password"
                     type={
-                      showPassword
-                        ? "text"
-                        : "password"
+                      showPassword ? "text" : "password"
                     }
                     value={formData.password}
                     onChange={handleChange}
@@ -174,17 +188,14 @@ function Login() {
                   <button
                     className="auth-password-toggle"
                     type="button"
+                    aria-pressed={showPassword}
                     onClick={() =>
                       setShowPassword(
                         (current) => !current
                       )
                     }
                   >
-                    {
-                      showPassword
-                        ? "Hide"
-                        : "Show"
-                    }
+                    {showPassword ? "Hide" : "Show"}
                   </button>
                 </div>
               </div>
@@ -200,13 +211,20 @@ function Login() {
                 </label>
               </div>
 
-              {error && <p className="auth-error">{error}</p>}
+              {error && (
+                <p className="auth-error" role="alert">
+                  {error}
+                </p>
+              )}
 
               <button
                 className="auth-submit"
                 type="submit"
+                disabled={isSubmitting}
               >
-                Log in
+                {isSubmitting
+                  ? "Logging in..."
+                  : "Log in"}
                 <span>→</span>
               </button>
             </form>
@@ -223,9 +241,8 @@ function Login() {
             </Link>
 
             <p className="auth-footer-text">
-              Keep your account information secure
-              and continue building better habits
-              with OnTrack.
+              Keep your account information secure and
+              continue building better habits with OnTrack.
             </p>
           </div>
         </section>

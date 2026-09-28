@@ -1502,10 +1502,31 @@ a {
   }
 
 }
+/* Signed-in account information */
+
+.signed-in-email {
+  max-width: 230px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Disabled login and logout buttons */
+
+.auth-submit:disabled,
+.header-actions button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+  transform: none;
+}
 
 /* =========================================
    HABIT TRACKER
 ========================================= */
+
 .habit-page {
   min-height: 100vh;
   padding: 48px 20px;
@@ -1620,7 +1641,16 @@ a {
 }
 
 @media (max-width: 700px) {
-  .habit-shell { padding: 22px; }
-  .habit-header { align-items: flex-start; flex-direction: column; }
-  .habit-form { grid-template-columns: 1fr; }
+  .habit-shell {
+    padding: 22px;
+  }
+
+  .habit-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .habit-form {
+    grid-template-columns: 1fr;
+  }
 }
