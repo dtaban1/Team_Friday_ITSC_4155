@@ -153,15 +153,12 @@ function Home() {
 
             <div className="hero-actions">
               {user ? (
-                <span className="button button-start">
+                <Link className="button button-start" to="/dashboard">
                   Welcome back
-                  <span
-                    className="arrow"
-                    aria-hidden="true"
-                  >
-                    ✓
+                  <span className="arrow" aria-hidden="true">
+                    →
                   </span>
-                </span>
+                </Link>
               ) : (
                 <>
                   <Link
