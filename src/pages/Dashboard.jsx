@@ -35,6 +35,12 @@ function Dashboard() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [water, setWater] = useState("");
   const [sleep, setSleep] = useState("");
+  const [customHabits, setCustomHabits] = useState([]);
+  const [customValues, setCustomValues] = useState({});
+  const [newHabitName, setNewHabitName] = useState("");
+  const [newHabitUnit, setNewHabitUnit] = useState("");
+  const [createMessage, setCreateMessage] = useState("");
+  const [isCreatingHabit, setIsCreatingHabit] = useState(false);
 
   const loadHabitEntries = async (userId, signal) => {
     const response = await fetch(`${API_URL}/api/users/${userId}/habits`, {
@@ -79,7 +85,7 @@ function Dashboard() {
         const currentUser = sessionData.user;
         setUser(currentUser);
 
-        const [habitResponse, typeResponse] = await Promise.all([
+        const [habitResponse, typeResponse, customResponse] = await Promise.all([
           fetch(`${API_URL}/api/users/${currentUser.id}/habits`, {
             credentials: "include",
             signal: controller.signal,
@@ -88,9 +94,13 @@ function Dashboard() {
             credentials: "include",
             signal: controller.signal,
           }),
+          fetch(`${API_URL}/api/custom-habits`, {
+            credentials: "include",
+            signal: controller.signal,
+          }),
         ]);
 
-        if (!habitResponse.ok || !typeResponse.ok) {
+        if (!habitResponse.ok || !typeResponse.ok || !customResponse.ok) {
           throw new Error("Some dashboard information could not be loaded.");
         }
 
@@ -101,6 +111,7 @@ function Dashboard() {
 
         setHabits(Array.isArray(habitData) ? habitData : []);
         setHabitTypes(Array.isArray(typeData) ? typeData : []);
+        setCustomHabits(await customResponse.json());
       } catch (loadError) {
         if (loadError.name !== "AbortError") {
           setError(
@@ -138,6 +149,9 @@ function Dashboard() {
 
     setWater(waterEntry ? String(waterEntry.value) : "");
     setSleep(sleepEntry ? String(sleepEntry.value) : "");
+    setCustomValues(Object.fromEntries(selectedDateEntries
+      .filter((entry) => entry.customHabitId)
+      .map((entry) => [entry.customHabitId, String(entry.value)])));
   }, [selectedDateEntries]);
 
   const lastSevenDays = useMemo(() => {
@@ -156,7 +170,7 @@ function Dashboard() {
     [todaysHabits]
   );
 
-  const totalTrackedHabits = habitTypes.length;
+  const totalTrackedHabits = habitTypes.length + customHabits.length;
   const completedToday = completedHabitNames.size;
   const progressPercent = totalTrackedHabits
     ? Math.min(100, Math.round((completedToday / totalTrackedHabits) * 100))
@@ -194,8 +208,8 @@ function Dashboard() {
     setHabitMessage("");
     setError("");
 
-    if (water === "" && sleep === "") {
-      setHabitMessage("Enter a water or sleep value before saving.");
+    if (water === "" && sleep === "" && !Object.values(customValues).some((value) => value !== "")) {
+      setHabitMessage("Enter at least one habit value before saving.");
       return;
     }
 
@@ -205,6 +219,15 @@ function Dashboard() {
       await Promise.all([
         saveHabit("water", water),
         saveHabit("sleep", sleep),
+        ...customHabits.filter((habit) => customValues[habit.id] !== undefined && customValues[habit.id] !== "")
+          .map(async (habit) => {
+            const response = await fetch(`${API_URL}/api/custom-habits/${habit.id}/entries`, {
+              method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ entryDate: selectedDate, value: Number(customValues[habit.id]) }),
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || "Could not save habit.");
+          }),
       ]);
 
       await loadHabitEntries(user.id);
@@ -213,6 +236,32 @@ function Dashboard() {
       setHabitMessage(saveError.message || "Could not save habits.");
     } finally {
       setIsSavingHabits(false);
+    }
+  };
+
+  const handleCreateHabit = async (event) => {
+    event.preventDefault();
+    setCreateMessage("");
+    if (!newHabitName.trim() || !newHabitUnit.trim()) {
+      setCreateMessage("Enter a habit name and unit.");
+      return;
+    }
+    setIsCreatingHabit(true);
+    try {
+      const response = await fetch(`${API_URL}/api/custom-habits`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newHabitName, unit: newHabitUnit }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Could not create habit.");
+      setCustomHabits((current) => [...current, data]);
+      setNewHabitName("");
+      setNewHabitUnit("");
+      setCreateMessage("Habit created. You can log an entry below.");
+    } catch (error) {
+      setCreateMessage(error.message);
+    } finally {
+      setIsCreatingHabit(false);
     }
   };
 
@@ -338,7 +387,7 @@ function Dashboard() {
             <div className="dashboard-card-heading">
               <div>
                 <span className="dashboard-card-label">Habits</span>
-                <h2>Water &amp; sleep tracking</h2>
+                <h2>Daily habit tracking</h2>
                 <p className="dashboard-card-description">
                   Log your daily habits without leaving the dashboard.
                 </p>
@@ -347,6 +396,21 @@ function Dashboard() {
                 {selectedDate === today ? "Today" : formatShortDate(selectedDate)}
               </span>
             </div>
+
+            <form className="dashboard-custom-habit-form" onSubmit={handleCreateHabit}>
+              <label className="dashboard-field">
+                <span>New habit name</span>
+                <input value={newHabitName} onChange={(event) => setNewHabitName(event.target.value)} maxLength={50} placeholder="Reading" required />
+              </label>
+              <label className="dashboard-field">
+                <span>Unit of measurement</span>
+                <input value={newHabitUnit} onChange={(event) => setNewHabitUnit(event.target.value)} maxLength={30} placeholder="minutes" required />
+              </label>
+              <button className="dashboard-save-habits" type="submit" disabled={isCreatingHabit}>
+                {isCreatingHabit ? "Creating..." : "Create habit"}
+              </button>
+              {createMessage && <p className="dashboard-habit-message" role="status">{createMessage}</p>}
+            </form>
 
             <div className="dashboard-habit-layout">
               <form className="dashboard-habit-form" onSubmit={handleHabitSubmit}>
@@ -396,6 +460,18 @@ function Dashboard() {
                   </div>
                 </label>
 
+                {customHabits.map((habit) => (
+                  <label className="dashboard-field" key={habit.id}>
+                    <span>{habit.name}</span>
+                    <div className="dashboard-input-with-unit">
+                      <input type="number" min="0" max="99999999.99" step="0.01" inputMode="decimal"
+                        value={customValues[habit.id] ?? ""}
+                        onChange={(event) => setCustomValues((current) => ({ ...current, [habit.id]: event.target.value }))} />
+                      <b>{habit.unit}</b>
+                    </div>
+                  </label>
+                ))}
+
                 <button
                   className="dashboard-save-habits"
                   type="submit"
@@ -419,7 +495,7 @@ function Dashboard() {
                     <h3>{formatShortDate(selectedDate)}</h3>
                   </div>
                   <strong>
-                    {selectedDateEntries.length}/{Math.max(habitTypes.length, 2)} logged
+                    {selectedDateEntries.length}/{Math.max(totalTrackedHabits, 2)} logged
                   </strong>
                 </div>
 
@@ -428,7 +504,7 @@ function Dashboard() {
                     <span aria-hidden="true">○</span>
                     <div>
                       <strong>No habits logged for this date.</strong>
-                      <p>Enter your water or sleep values and save them here.</p>
+                      <p>Enter your habit values and save them here.</p>
                     </div>
                   </div>
                 ) : (
@@ -460,7 +536,7 @@ function Dashboard() {
                   <span aria-hidden="true">↗</span>
                   <div>
                     <strong>No habit history yet.</strong>
-                    <p>Your recent water and sleep entries will appear here.</p>
+                    <p>Your recent habit entries will appear here.</p>
                   </div>
                 </div>
               ) : (
