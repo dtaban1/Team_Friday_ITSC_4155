@@ -44,7 +44,7 @@ ON DUPLICATE KEY UPDATE
   unit = VALUES(unit),
   description = VALUES(description);
 
--- Custom habits belong to one account; existing water/sleep tables stay unchanged.
+-- Custom habits belong to one account.
 CREATE TABLE IF NOT EXISTS custom_habits (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,

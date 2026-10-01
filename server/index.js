@@ -229,7 +229,6 @@ app.post("/api/logout", (req, res) => {
   });
 });
 
-// Custom habit routes use the existing login session for account ownership.
 function requireHabitSession(req, res, next) {
   if (!req.session.userId) return res.status(401).json({ message: "Please log in." });
   next();

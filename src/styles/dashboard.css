@@ -803,7 +803,6 @@ html {
   }
 }
 
-/* Custom habit creation reuses the established dashboard controls. */
 .dashboard-custom-habit-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
