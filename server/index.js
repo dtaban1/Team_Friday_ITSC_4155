@@ -484,7 +484,7 @@ app.get(
       const [entries] = await pool.query(
         `SELECT entry_date
          FROM habit_entries
-         WHERE user_id = ? AND habit_type_id = ?
+         WHERE user_id = ? AND habit_type_id = ? AND entry_date <= CURDATE()
          ORDER BY entry_date DESC`,
         [userId, habitTypeId]
       );
