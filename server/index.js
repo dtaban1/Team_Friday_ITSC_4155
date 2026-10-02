@@ -229,6 +229,61 @@ app.post("/api/logout", (req, res) => {
   });
 });
 
+function requireHabitSession(req, res, next) {
+  if (!req.session.userId) return res.status(401).json({ message: "Please log in." });
+  next();
+}
+
+app.get("/api/custom-habits", requireHabitSession, async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT id, name, unit FROM custom_habits WHERE user_id = ? ORDER BY id", [req.session.userId]);
+    res.json(rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not load custom habits." });
+  }
+});
+
+app.post("/api/custom-habits", requireHabitSession, async (req, res) => {
+  const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
+  const unit = typeof req.body.unit === "string" ? req.body.unit.trim() : "";
+  if (!name || name.length > 50 || !unit || unit.length > 30) {
+    return res.status(400).json({ message: "Enter a habit name (up to 50 characters) and unit (up to 30 characters)." });
+  }
+  if (["water", "sleep"].includes(name.toLowerCase())) {
+    return res.status(400).json({ message: "Water and sleep are already available." });
+  }
+  try {
+    const [result] = await pool.query("INSERT INTO custom_habits (user_id, name, unit) VALUES (?, ?, ?)", [req.session.userId, name, unit]);
+    res.status(201).json({ id: result.insertId, name, unit });
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") return res.status(409).json({ message: "You already have a habit with this name." });
+    console.error(error);
+    res.status(500).json({ message: "Could not create habit." });
+  }
+});
+
+app.put("/api/custom-habits/:id/entries", requireHabitSession, async (req, res) => {
+  const id = parseUserId(req.params.id);
+  const { entryDate, value } = req.body;
+  const number = Number(value);
+  const validDate = typeof entryDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(entryDate) &&
+    Number.isFinite(Date.parse(entryDate)) && new Date(entryDate).toISOString().slice(0, 10) === entryDate;
+  if (!id || !validDate || typeof value !== "number" || !Number.isFinite(number) || number < 0 || number > 99999999.99) {
+    return res.status(400).json({ message: "Choose a valid date and a non-negative value up to 99999999.99." });
+  }
+  try {
+    const [rows] = await pool.query("SELECT id FROM custom_habits WHERE id = ? AND user_id = ?", [id, req.session.userId]);
+    if (!rows.length) return res.status(404).json({ message: "Habit not found." });
+    await pool.query(`INSERT INTO custom_habit_entries (custom_habit_id, entry_date, value) VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE value = VALUES(value)`, [id, entryDate, number]);
+    res.json({ message: "Habit entry saved." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not save habit entry." });
+  }
+});
+
 // HABIT TYPES
 app.get("/api/habits", async (_req, res) => {
   try {
@@ -275,7 +330,7 @@ app.get(
            he.user_id AS userId,
            ht.name AS habit,
            ht.unit,
-           he.entry_date AS entryDate,
+           DATE_FORMAT(he.entry_date, '%Y-%m-%d') AS entryDate,
            CAST(he.value AS DOUBLE) AS value,
            he.notes
          FROM habit_entries he
@@ -288,6 +343,15 @@ app.get(
         [userId]
       );
 
+      if (req.session.userId === userId) {
+        const [customEntries] = await pool.query(`SELECT CONCAT('custom-', ce.id) AS id,
+          ch.id AS customHabitId, ch.name AS habit, ch.unit,
+          DATE_FORMAT(ce.entry_date, '%Y-%m-%d') AS entryDate, CAST(ce.value AS DOUBLE) AS value
+          FROM custom_habit_entries ce JOIN custom_habits ch ON ch.id = ce.custom_habit_id
+          WHERE ch.user_id = ?`, [userId]);
+        rows.push(...customEntries);
+        rows.sort((a, b) => String(b.entryDate).slice(0, 10).localeCompare(String(a.entryDate).slice(0, 10)) || a.habit.localeCompare(b.habit));
+      }
       res.json(rows);
     } catch (error) {
       console.error(error);
