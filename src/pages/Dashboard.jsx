@@ -1,8 +1,10 @@
+//Dashboard.jsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 
 function localDateString(date = new Date()) {
   const offset = date.getTimezoneOffset();
@@ -25,11 +27,13 @@ function Dashboard() {
   const [user, setUser] = useState(null);
   const [habits, setHabits] = useState([]);
   const [habitTypes, setHabitTypes] = useState([]);
+  const [streaks, setStreaks] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isSavingHabits, setIsSavingHabits] = useState(false);
   const [error, setError] = useState("");
   const [habitMessage, setHabitMessage] = useState("");
+  
 
   const today = localDateString();
   const [selectedDate, setSelectedDate] = useState(today);
@@ -41,6 +45,8 @@ function Dashboard() {
       credentials: "include",
       signal,
     });
+  
+  
 
     const data = await response.json();
 
@@ -52,6 +58,22 @@ function Dashboard() {
     setHabits(entries);
     return entries;
   };
+
+  const loadStreaks = async (userId, types, signal) => {
+  const results = await Promise.all(
+    types.map(async (type) => {
+      const response = await fetch(
+        `${API_URL}/api/users/${userId}/habits/${type.name}/streak`,
+        { credentials: "include", signal }
+      );
+      const data = await response.json();
+      return [type.name, response.ok ? data.streak : 0];
+    })
+  );
+
+  setStreaks(Object.fromEntries(results));
+  };
+
 
   useEffect(() => {
     const controller = new AbortController();
@@ -101,6 +123,9 @@ function Dashboard() {
 
         setHabits(Array.isArray(habitData) ? habitData : []);
         setHabitTypes(Array.isArray(typeData) ? typeData : []);
+        //new line below, fetches streaks so that we know the user's habit types
+        await loadStreaks(currentUser.id, Array.isArray(typeData) ? typeData : [], controller.signal);
+
       } catch (loadError) {
         if (loadError.name !== "AbortError") {
           setError(
@@ -208,6 +233,7 @@ function Dashboard() {
       ]);
 
       await loadHabitEntries(user.id);
+      await loadStreaks(user.id, habitTypes); //this line is 4 refreshing streaks after saving a habit
       setHabitMessage(`Habits saved for ${formatShortDate(selectedDate)}.`);
     } catch (saveError) {
       setHabitMessage(saveError.message || "Could not save habits.");
@@ -328,6 +354,17 @@ function Dashboard() {
               <span>today&apos;s habit progress</span>
             </div>
           </article>
+
+        {habitTypes.map((type) => (
+          <article className="dashboard-stat-card" key={type.id}>
+           <span className="dashboard-stat-icon amber" aria-hidden="true">🔥</span>
+           <div>
+             <strong>{streaks[type.name] ?? 0}</strong>
+             <span>{type.name} streak</span>
+           </div>
+          </article>
+))}
+
         </section>
 
         <section className="dashboard-grid" aria-label="Dashboard sections">
