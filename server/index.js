@@ -447,6 +447,88 @@ app.delete(
   }
 );
 
+
+// GET STREAK FOR A SPECIFIC HABIT
+app.get(
+  "/api/users/:userId/habits/:habitName/streak",
+  async (req, res) => {
+    const userId = parseUserId(req.params.userId);
+    const habitName = String(req.params.habitName || "").toLowerCase();
+
+    if (!userId) {
+      return res.status(400).json({
+        message: "Invalid user id",
+      });
+    }
+
+    try {
+      if (!(await userExists(userId))) {
+        return res.status(404).json({
+          message: "User not found",
+        });
+      }
+
+      const [habitRows] = await pool.query(
+        `SELECT id FROM habit_types WHERE name = ? LIMIT 1`,
+        [habitName]
+      );
+
+      if (habitRows.length === 0) {
+        return res.status(404).json({
+          message: "Unknown habit type",
+        });
+      }
+
+      const habitTypeId = habitRows[0].id;
+
+      const [entries] = await pool.query(
+        `SELECT entry_date
+         FROM habit_entries
+         WHERE user_id = ? AND habit_type_id = ? AND entry_date <= CURDATE()
+         ORDER BY entry_date DESC`,
+        [userId, habitTypeId]
+      );
+
+      let streak = 0;
+      let expectedDate = new Date();
+      expectedDate.setHours(0, 0, 0, 0);
+
+      for (const row of entries) {
+        const entryDate = new Date(row.entry_date);
+        entryDate.setHours(0, 0, 0, 0);
+
+        const diffDays = Math.round(
+          (expectedDate - entryDate) / (1000 * 60 * 60 * 24)
+        );
+
+        if (diffDays === 0) {
+          streak++;
+          expectedDate.setDate(expectedDate.getDate() - 1);
+        } else if (diffDays === 1 && streak === 0) {
+          streak++;
+          expectedDate = new Date(entryDate);
+          expectedDate.setDate(expectedDate.getDate() - 1);
+        } else {
+          break;
+        }
+      }
+
+      res.json({
+        userId,
+        habit: habitName,
+        streak,
+      });
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        message: "Could not calculate streak",
+      });
+    }
+  }
+);
+
+
 app.listen(port, () => {
   console.log(
     `Server running on port ${port}`
