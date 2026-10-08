@@ -592,6 +592,237 @@ app.get(
   }
 );
 
+function requireSession(req, res, next) {
+  if (!req.session.userId) {
+    return res.status(401).json({ message: "Please log in." });
+  }
+
+  next();
+}
+
+function validOptionalDate(value) {
+  return (
+    value === null ||
+    value === "" ||
+    (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value))
+  );
+}
+
+function cleanTitle(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+// TASKS
+app.get("/api/tasks", requireSession, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, title, DATE_FORMAT(due_date, '%Y-%m-%d') AS dueDate,
+              completed
+       FROM tasks
+       WHERE user_id = ?
+       ORDER BY completed ASC, due_date IS NULL, due_date ASC, id DESC`,
+      [req.session.userId]
+    );
+
+    res.json(rows.map((row) => ({ ...row, completed: Boolean(row.completed) })));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not load tasks." });
+  }
+});
+
+app.post("/api/tasks", requireSession, async (req, res) => {
+  const title = cleanTitle(req.body.title);
+  const dueDate = req.body.dueDate || null;
+
+  if (!title || title.length > 120 || !validOptionalDate(dueDate)) {
+    return res.status(400).json({ message: "Enter a task title up to 120 characters and a valid due date." });
+  }
+
+  try {
+    const [result] = await pool.query(
+      "INSERT INTO tasks (user_id, title, due_date) VALUES (?, ?, ?)",
+      [req.session.userId, title, dueDate]
+    );
+    res.status(201).json({ id: result.insertId, title, dueDate, completed: false });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not create task." });
+  }
+});
+
+app.patch("/api/tasks/:id", requireSession, async (req, res) => {
+  const id = parseUserId(req.params.id);
+  if (!id || typeof req.body.completed !== "boolean") {
+    return res.status(400).json({ message: "Choose a valid task and completion status." });
+  }
+
+  try {
+    const [result] = await pool.query(
+      "UPDATE tasks SET completed = ? WHERE id = ? AND user_id = ?",
+      [req.body.completed, id, req.session.userId]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: "Task not found." });
+    res.json({ id, completed: req.body.completed });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not update task." });
+  }
+});
+
+app.delete("/api/tasks/:id", requireSession, async (req, res) => {
+  const id = parseUserId(req.params.id);
+  if (!id) return res.status(400).json({ message: "Invalid task id." });
+
+  try {
+    const [result] = await pool.query(
+      "DELETE FROM tasks WHERE id = ? AND user_id = ?",
+      [id, req.session.userId]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: "Task not found." });
+    res.json({ deleted: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not delete task." });
+  }
+});
+
+// GOALS
+app.get("/api/goals", requireSession, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, title, DATE_FORMAT(target_date, '%Y-%m-%d') AS targetDate,
+              completed
+       FROM goals
+       WHERE user_id = ?
+       ORDER BY completed ASC, target_date IS NULL, target_date ASC, id DESC`,
+      [req.session.userId]
+    );
+    res.json(rows.map((row) => ({ ...row, completed: Boolean(row.completed) })));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not load goals." });
+  }
+});
+
+app.post("/api/goals", requireSession, async (req, res) => {
+  const title = cleanTitle(req.body.title);
+  const targetDate = req.body.targetDate || null;
+
+  if (!title || title.length > 120 || !validOptionalDate(targetDate)) {
+    return res.status(400).json({ message: "Enter a goal title up to 120 characters and a valid target date." });
+  }
+
+  try {
+    const [result] = await pool.query(
+      "INSERT INTO goals (user_id, title, target_date) VALUES (?, ?, ?)",
+      [req.session.userId, title, targetDate]
+    );
+    res.status(201).json({ id: result.insertId, title, targetDate, completed: false });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not create goal." });
+  }
+});
+
+app.patch("/api/goals/:id", requireSession, async (req, res) => {
+  const id = parseUserId(req.params.id);
+  if (!id || typeof req.body.completed !== "boolean") {
+    return res.status(400).json({ message: "Choose a valid goal and completion status." });
+  }
+
+  try {
+    const [result] = await pool.query(
+      "UPDATE goals SET completed = ? WHERE id = ? AND user_id = ?",
+      [req.body.completed, id, req.session.userId]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: "Goal not found." });
+    res.json({ id, completed: req.body.completed });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not update goal." });
+  }
+});
+
+app.delete("/api/goals/:id", requireSession, async (req, res) => {
+  const id = parseUserId(req.params.id);
+  if (!id) return res.status(400).json({ message: "Invalid goal id." });
+
+  try {
+    const [result] = await pool.query(
+      "DELETE FROM goals WHERE id = ? AND user_id = ?",
+      [id, req.session.userId]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: "Goal not found." });
+    res.json({ deleted: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not delete goal." });
+  }
+});
+
+// EVENTS
+app.get("/api/events", requireSession, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, title, DATE_FORMAT(event_date, '%Y-%m-%d') AS eventDate,
+              TIME_FORMAT(event_time, '%H:%i') AS eventTime, location
+       FROM events
+       WHERE user_id = ?
+       ORDER BY event_date ASC, event_time IS NULL, event_time ASC, id DESC`,
+      [req.session.userId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not load events." });
+  }
+});
+
+app.post("/api/events", requireSession, async (req, res) => {
+  const title = cleanTitle(req.body.title);
+  const eventDate = req.body.eventDate;
+  const eventTime = req.body.eventTime || null;
+  const location = typeof req.body.location === "string" ? req.body.location.trim() : "";
+
+  if (
+    !title || title.length > 120 ||
+    !eventDate || !validOptionalDate(eventDate) ||
+    (eventTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(eventTime)) ||
+    location.length > 120
+  ) {
+    return res.status(400).json({ message: "Enter a valid event title, date, time, and location." });
+  }
+
+  try {
+    const [result] = await pool.query(
+      "INSERT INTO events (user_id, title, event_date, event_time, location) VALUES (?, ?, ?, ?, ?)",
+      [req.session.userId, title, eventDate, eventTime, location || null]
+    );
+    res.status(201).json({ id: result.insertId, title, eventDate, eventTime, location });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not create event." });
+  }
+});
+
+app.delete("/api/events/:id", requireSession, async (req, res) => {
+  const id = parseUserId(req.params.id);
+  if (!id) return res.status(400).json({ message: "Invalid event id." });
+
+  try {
+    const [result] = await pool.query(
+      "DELETE FROM events WHERE id = ? AND user_id = ?",
+      [id, req.session.userId]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: "Event not found." });
+    res.json({ deleted: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not delete event." });
+  }
+});
+
 
 app.listen(port, () => {
   console.log(
