@@ -449,6 +449,157 @@
   }
 }
 
+/* =========================
+   TASKS, GOALS, AND EVENTS
+========================= */
+
+.dashboard-planning-card {
+  align-self: start;
+}
+
+.dashboard-item-count {
+  min-width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  color: #147ed8;
+  background: #e7f3ff;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.dashboard-planning-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.55fr);
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 16px;
+  background: #f8fbfe;
+  border: 1px solid #e2ebf3;
+  border-radius: 18px;
+}
+
+.dashboard-add-item {
+  grid-column: 1 / -1;
+  min-height: 44px;
+  color: #fff;
+  background: linear-gradient(135deg, #2495f2, #147ed8);
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.dashboard-add-item:hover:not(:disabled) {
+  background: #147ed8;
+}
+
+.dashboard-add-item:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.dashboard-planning-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #60749a;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dashboard-planning-list {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-planning-row {
+  padding: 13px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fbfdff;
+  border: 1px solid #e2ebf3;
+  border-radius: 15px;
+}
+
+.dashboard-complete-checkbox {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  accent-color: #0c8d85;
+  cursor: pointer;
+}
+
+.dashboard-planning-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.dashboard-planning-copy strong,
+.dashboard-planning-copy span {
+  display: block;
+}
+
+.dashboard-planning-copy strong {
+  overflow-wrap: anywhere;
+  color: #112f66;
+  font-size: 14px;
+}
+
+.dashboard-planning-copy span {
+  margin-top: 4px;
+  color: #7184a5;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.dashboard-planning-row.is-complete .dashboard-planning-copy strong {
+  color: #8293aa;
+  text-decoration: line-through;
+}
+
+.dashboard-delete-item {
+  padding: 7px 9px;
+  color: #a62535;
+  background: #fff1f3;
+  border: 1px solid #ffd3d9;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.dashboard-delete-item:hover {
+  background: #ffe4e8;
+}
+
+.dashboard-add-item:focus-visible,
+.dashboard-delete-item:focus-visible,
+.dashboard-complete-checkbox:focus-visible {
+  outline: 3px solid rgba(36, 149, 242, 0.26);
+  outline-offset: 3px;
+}
+
+@media (max-width: 560px) {
+  .dashboard-planning-form {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-planning-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .dashboard-delete-item {
+    margin-left: 31px;
+  }
+}
+
 @media (max-width: 720px) {
   .dashboard-header,
   .dashboard-shell {

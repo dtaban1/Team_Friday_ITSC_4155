@@ -22,6 +22,149 @@ function formatShortDate(dateString) {
   }).format(date);
 }
 
+function PlanningSection({
+  kind,
+  title,
+  icon,
+  items,
+  dateField,
+  dateLabel,
+  onCreate,
+  onToggle,
+  onDelete,
+  includeTime = false,
+  includeLocation = false,
+}) {
+  const [itemTitle, setItemTitle] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [location, setLocation] = useState("");
+  const [message, setMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setMessage("");
+    setIsSaving(true);
+
+    try {
+      await onCreate({
+        title: itemTitle,
+        [dateField]: date,
+        ...(includeTime ? { eventTime: time } : {}),
+        ...(includeLocation ? { location } : {}),
+      });
+      setItemTitle("");
+      setDate("");
+      setTime("");
+      setLocation("");
+      setMessage(`${kind} added.`);
+    } catch (saveError) {
+      setMessage(saveError.message || `Could not add ${kind.toLowerCase()}.`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <article className="dashboard-card dashboard-planning-card" id={`${kind.toLowerCase()}s`}>
+      <div className="dashboard-card-heading">
+        <div>
+          <span className="dashboard-card-label">{kind}s</span>
+          <h2>{title}</h2>
+        </div>
+        <span className="dashboard-item-count">{items.length}</span>
+      </div>
+
+      <form className="dashboard-planning-form" onSubmit={handleSubmit}>
+        <label className="dashboard-field">
+          <span>{kind} title</span>
+          <input
+            value={itemTitle}
+            onChange={(event) => setItemTitle(event.target.value)}
+            maxLength={120}
+            placeholder={`Add a ${kind.toLowerCase()}`}
+            required
+          />
+        </label>
+
+        <label className="dashboard-field">
+          <span>{dateLabel}</span>
+          <input
+            type="date"
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+            required={kind === "Event"}
+          />
+        </label>
+
+        {includeTime && (
+          <label className="dashboard-field">
+            <span>Time</span>
+            <input type="time" value={time} onChange={(event) => setTime(event.target.value)} />
+          </label>
+        )}
+
+        {includeLocation && (
+          <label className="dashboard-field">
+            <span>Location</span>
+            <input
+              value={location}
+              onChange={(event) => setLocation(event.target.value)}
+              maxLength={120}
+              placeholder="Optional location"
+            />
+          </label>
+        )}
+
+        <button className="dashboard-add-item" type="submit" disabled={isSaving}>
+          {isSaving ? "Adding..." : `Add ${kind.toLowerCase()}`}
+        </button>
+        {message && <p className="dashboard-planning-message" role="status">{message}</p>}
+      </form>
+
+      {items.length === 0 ? (
+        <div className="dashboard-empty-state compact">
+          <span aria-hidden="true">{icon}</span>
+          <div>
+            <strong>No {kind.toLowerCase()}s yet.</strong>
+            <p>Add your first {kind.toLowerCase()} above.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="dashboard-planning-list">
+          {items.map((item) => (
+            <div className={`dashboard-planning-row ${item.completed ? "is-complete" : ""}`} key={item.id}>
+              {onToggle && (
+                <input
+                  className="dashboard-complete-checkbox"
+                  type="checkbox"
+                  checked={Boolean(item.completed)}
+                  onChange={() => onToggle(item)}
+                  aria-label={`${item.completed ? "Reopen" : "Complete"} ${item.title}`}
+                />
+              )}
+              <div className="dashboard-planning-copy">
+                <strong>{item.title}</strong>
+                <span>
+                  {item[dateField]
+                    ? `${dateLabel}: ${formatShortDate(item[dateField])}`
+                    : `No ${dateLabel.toLowerCase()}`}
+                  {item.eventTime ? ` at ${item.eventTime}` : ""}
+                  {item.location ? ` · ${item.location}` : ""}
+                </span>
+              </div>
+              <button className="dashboard-delete-item" type="button" onClick={() => onDelete(item.id)}>
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
 function Dashboard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -45,6 +188,9 @@ function Dashboard() {
   const [newHabitUnit, setNewHabitUnit] = useState("");
   const [createMessage, setCreateMessage] = useState("");
   const [isCreatingHabit, setIsCreatingHabit] = useState(false);
+  const [tasks, setTasks] = useState([]);
+  const [goals, setGoals] = useState([]);
+  const [events, setEvents] = useState([]);
 
   const loadHabitEntries = async (userId, signal) => {
     const response = await fetch(`${API_URL}/api/users/${userId}/habits`, {
@@ -107,7 +253,7 @@ function Dashboard() {
         const currentUser = sessionData.user;
         setUser(currentUser);
 
-        const [habitResponse, typeResponse, customResponse] = await Promise.all([
+        const [habitResponse, typeResponse, customResponse, taskResponse, goalResponse, eventResponse] = await Promise.all([
           fetch(`${API_URL}/api/users/${currentUser.id}/habits`, {
             credentials: "include",
             signal: controller.signal,
@@ -120,9 +266,12 @@ function Dashboard() {
             credentials: "include",
             signal: controller.signal,
           }),
+          fetch(`${API_URL}/api/tasks`, { credentials: "include", signal: controller.signal }),
+          fetch(`${API_URL}/api/goals`, { credentials: "include", signal: controller.signal }),
+          fetch(`${API_URL}/api/events`, { credentials: "include", signal: controller.signal }),
         ]);
 
-        if (!habitResponse.ok || !typeResponse.ok || !customResponse.ok) {
+        if (!habitResponse.ok || !typeResponse.ok || !customResponse.ok || !taskResponse.ok || !goalResponse.ok || !eventResponse.ok) {
           throw new Error("Some dashboard information could not be loaded.");
         }
 
@@ -134,6 +283,9 @@ function Dashboard() {
         setHabits(Array.isArray(habitData) ? habitData : []);
         setHabitTypes(Array.isArray(typeData) ? typeData : []);
         setCustomHabits(await customResponse.json());
+        setTasks(await taskResponse.json());
+        setGoals(await goalResponse.json());
+        setEvents(await eventResponse.json());
         //new line below, fetches streaks so that we know the user's habit types
         await loadStreaks(currentUser.id, Array.isArray(typeData) ? typeData : [], controller.signal);
 
@@ -313,6 +465,47 @@ function Dashboard() {
     }
   };
 
+  const createPlanningItem = async (endpoint, payload, setter) => {
+    const response = await fetch(`${API_URL}/api/${endpoint}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || `Could not create ${endpoint.slice(0, -1)}.`);
+    setter((current) => [...current, data]);
+  };
+
+  const togglePlanningItem = async (endpoint, item, setter) => {
+    const completed = !item.completed;
+    const response = await fetch(`${API_URL}/api/${endpoint}/${item.id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ completed }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setError(data.message || `Could not update ${endpoint.slice(0, -1)}.`);
+      return;
+    }
+    setter((current) => current.map((entry) => entry.id === item.id ? { ...entry, completed } : entry));
+  };
+
+  const deletePlanningItem = async (endpoint, id, setter) => {
+    const response = await fetch(`${API_URL}/api/${endpoint}/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setError(data.message || `Could not delete ${endpoint.slice(0, -1)}.`);
+      return;
+    }
+    setter((current) => current.filter((entry) => entry.id !== id));
+  };
+
   if (isLoading) {
     return (
       <main className="dashboard-page dashboard-loading-page">
@@ -342,6 +535,9 @@ function Dashboard() {
           <a className="dashboard-nav-link" href="#habits">
             Habits
           </a>
+          <a className="dashboard-nav-link" href="#tasks">Tasks</a>
+          <a className="dashboard-nav-link" href="#goals">Goals</a>
+          <a className="dashboard-nav-link" href="#events">Events</a>
           <a className="dashboard-nav-link" href="#progress">
             Progress
           </a>
@@ -601,56 +797,28 @@ function Dashboard() {
             </div>
           </article>
 
-          <article className="dashboard-card">
-            <div className="dashboard-card-heading">
-              <div>
-                <span className="dashboard-card-label">Tasks</span>
-                <h2>Your tasks</h2>
-              </div>
-              <span className="dashboard-coming-soon">Coming soon</span>
-            </div>
-            <div className="dashboard-empty-state">
-              <span aria-hidden="true">✓</span>
-              <div>
-                <strong>No tasks yet.</strong>
-                <p>Your daily responsibilities will appear here once you add them.</p>
-              </div>
-            </div>
-          </article>
+          <PlanningSection
+            kind="Task" title="Your tasks" icon="✓" items={tasks}
+            dateField="dueDate" dateLabel="Due date"
+            onCreate={(payload) => createPlanningItem("tasks", payload, setTasks)}
+            onToggle={(item) => togglePlanningItem("tasks", item, setTasks)}
+            onDelete={(id) => deletePlanningItem("tasks", id, setTasks)}
+          />
 
-          <article className="dashboard-card">
-            <div className="dashboard-card-heading">
-              <div>
-                <span className="dashboard-card-label">Goals</span>
-                <h2>Your goals</h2>
-              </div>
-              <span className="dashboard-coming-soon">Coming soon</span>
-            </div>
-            <div className="dashboard-empty-state">
-              <span aria-hidden="true">◎</span>
-              <div>
-                <strong>No goals yet.</strong>
-                <p>Your active goals and milestones will appear here.</p>
-              </div>
-            </div>
-          </article>
+          <PlanningSection
+            kind="Goal" title="Your goals" icon="◎" items={goals}
+            dateField="targetDate" dateLabel="Target date"
+            onCreate={(payload) => createPlanningItem("goals", payload, setGoals)}
+            onToggle={(item) => togglePlanningItem("goals", item, setGoals)}
+            onDelete={(id) => deletePlanningItem("goals", id, setGoals)}
+          />
 
-          <article className="dashboard-card">
-            <div className="dashboard-card-heading">
-              <div>
-                <span className="dashboard-card-label">Events</span>
-                <h2>Upcoming events</h2>
-              </div>
-              <span className="dashboard-coming-soon">Coming soon</span>
-            </div>
-            <div className="dashboard-empty-state">
-              <span aria-hidden="true">◇</span>
-              <div>
-                <strong>No events scheduled.</strong>
-                <p>Important dates and upcoming events will appear here.</p>
-              </div>
-            </div>
-          </article>
+          <PlanningSection
+            kind="Event" title="Upcoming events" icon="◇" items={events}
+            dateField="eventDate" dateLabel="Event date" includeTime includeLocation
+            onCreate={(payload) => createPlanningItem("events", payload, setEvents)}
+            onDelete={(id) => deletePlanningItem("events", id, setEvents)}
+          />
 
           <article className="dashboard-card dashboard-card-progress" id="progress">
             <div className="dashboard-card-heading">
