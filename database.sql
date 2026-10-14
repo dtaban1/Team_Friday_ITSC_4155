@@ -50,8 +50,18 @@ CREATE TABLE IF NOT EXISTS custom_habits (
   user_id INT NOT NULL,
   name VARCHAR(50) NOT NULL,
   unit VARCHAR(30) NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   UNIQUE (user_id, name),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Hiding a built-in habit is user-specific and never deletes its history.
+CREATE TABLE IF NOT EXISTS user_hidden_habit_types (
+  user_id INT NOT NULL,
+  habit_type_id INT UNSIGNED NOT NULL,
+  PRIMARY KEY (user_id, habit_type_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (habit_type_id) REFERENCES habit_types(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS custom_habit_entries (

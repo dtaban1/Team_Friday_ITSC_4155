@@ -1,0 +1,39 @@
+.management-intro { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 26px; }
+.management-intro h1 { color: #112f66; font-size: clamp(30px, 4vw, 44px); letter-spacing: -1px; margin: 8px 0; }
+.management-intro p { max-width: 740px; color: #60749a; line-height: 1.6; margin: 0; }
+.management-back { color: #147ed8; font-weight: 800; white-space: nowrap; }
+.management-section { margin-bottom: 18px; }
+.management-section h2 { margin: 7px 0 18px; }
+.management-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 16px; }
+.management-primary, .management-secondary, .management-remove { cursor: pointer; min-height: 43px; border-radius: 12px; font: inherit; font-size: 14px; font-weight: 800; padding: 10px 18px; }
+.management-primary { background: #177ed4; color: white; border: 1px solid #177ed4; }
+.management-primary:hover { background: #0c5ea9; }
+.management-secondary { background: #edf5fd; color: #11528f; border: 1px solid #cae1f6; }
+.management-secondary:hover { background: #dcedfc; }
+.management-remove { color: #ad3636; background: #fff1f1; border: 1px solid #ffc9c9; }
+.management-remove:hover { background: #ffe5e5; }
+.management-primary:disabled, .management-secondary:disabled, .management-remove:disabled { opacity: 0.55; cursor: wait; }
+.management-primary:focus-visible, .management-secondary:focus-visible, .management-remove:focus-visible, .management-back:focus-visible { outline: 3px solid #5db5f4; outline-offset: 3px; }
+.management-list { display: grid; gap: 10px; }
+.management-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 18px; border: 1px solid #e1ebf5; background: #fafdff; border-radius: 15px; padding: 16px 18px; }
+.management-details { display: flex; flex-direction: column; gap: 5px; min-width: 160px; }
+.management-details strong { color: #112f66; font-size: 16px; }
+.management-details span, .management-muted { color: #7184a5; font-size: 13px; }
+.management-muted { margin: -6px 0 18px; }
+.management-actions, .management-dialog-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.management-edit-form { display: flex; flex: 1 1 450px; justify-content: flex-end; align-items: end; gap: 10px; flex-wrap: wrap; }
+.management-edit-form label { display: flex; flex: 1 1 130px; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 700; color: #60749a; }
+.management-edit-form input { padding: 10px; border: 1px solid #c4d7e7; border-radius: 9px; min-width: 0; width: 100%; font: inherit; font-size: 14px; }
+.management-success { padding: 14px 16px; background: #e7f8f2; border: 1px solid #a7dac6; color: #116447; border-radius: 14px; font-weight: 700; }
+.management-overlay { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(10, 30, 59, 0.64); }
+.management-dialog { background: white; width: min(100%, 510px); padding: 28px; border-radius: 22px; box-shadow: 0 24px 70px rgba(0,0,0,.24); }
+.management-dialog h2 { margin: 0 0 12px; color: #112f66; }
+.management-dialog p { color: #60749a; line-height: 1.6; margin: 0 0 24px; }
+.management-dialog-actions { justify-content: flex-end; }
+@media (max-width: 720px) { .management-intro { align-items: flex-start; flex-direction: column; } .management-form { grid-template-columns: 1fr; } .management-row { align-items: flex-start; } .management-edit-form { flex-basis: 100%; justify-content: flex-start; } }
+/* The dashboard collapses its nav on mobile; keep this page's two links usable. */
+@media (max-width: 720px) {
+  .management-page .dashboard-header { gap: 10px; }
+  .management-page .dashboard-nav { flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
+  .management-page .dashboard-nav-link { display: inline-flex; font-size: 12px; padding: 0 9px; min-height: 37px; }
+}
