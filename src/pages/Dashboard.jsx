@@ -188,12 +188,14 @@ function Dashboard() {
   const [goals, setGoals] = useState([]);
   const [events, setEvents] = useState([]);
 
-    useEffect(() => {
-      const syncToday = () => setToday(localDateString());
-      const timer = window.setInterval(syncToday, 60 * 1000);
-  
-      return () => window.clearInterval(timer);
-    }, []);
+  // Keep the dashboard's definition of "today" aligned with the user's local
+  // calendar date even if the page stays open across midnight.
+  useEffect(() => {
+    const syncToday = () => setToday(localDateString());
+    const timer = window.setInterval(syncToday, 60 * 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   const loadHabitEntries = async (userId, signal) => {
     const response = await fetch(`${API_URL}/api/users/${userId}/habits`, {
