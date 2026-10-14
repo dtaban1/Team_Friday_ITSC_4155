@@ -232,6 +232,17 @@
   grid-column: 1 / -1;
 }
 
+/* Today's Progress now sits directly below the welcome area. */
+.dashboard-today-progress {
+  margin-bottom: 18px;
+}
+
+.dashboard-progress-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .dashboard-card-heading {
   display: flex;
   align-items: flex-start;
