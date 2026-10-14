@@ -234,9 +234,58 @@ function requireHabitSession(req, res, next) {
   next();
 }
 
+// All habits, including removed ones, for the authenticated user's management page.
+app.get("/api/habit-management", requireHabitSession, async (req, res) => {
+  try {
+    const [standard] = await pool.query(
+      `SELECT ht.id, ht.name, ht.unit,
+              (hidden.user_id IS NULL) AS isActive
+       FROM habit_types ht
+       LEFT JOIN user_hidden_habit_types hidden
+         ON hidden.habit_type_id = ht.id AND hidden.user_id = ?
+       ORDER BY ht.id`,
+      [req.session.userId]
+    );
+    const [custom] = await pool.query(
+      `SELECT id, name, unit, is_active AS isActive
+       FROM custom_habits WHERE user_id = ? ORDER BY id`,
+      [req.session.userId]
+    );
+    res.json({
+      standard: standard.map((habit) => ({ ...habit, isActive: Boolean(habit.isActive), kind: "standard" })),
+      custom: custom.map((habit) => ({ ...habit, isActive: Boolean(habit.isActive), kind: "custom" })),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not load habit management." });
+  }
+});
+
+// A hidden built-in habit remains in the global habit catalog and in the user's history.
+app.patch("/api/habit-management/standard/:id/visibility", requireHabitSession, async (req, res) => {
+  const id = parseUserId(req.params.id);
+  const { active } = req.body || {};
+  if (!id || typeof active !== "boolean") {
+    return res.status(400).json({ message: "Choose a valid habit and visibility status." });
+  }
+  try {
+    const [types] = await pool.query("SELECT id FROM habit_types WHERE id = ?", [id]);
+    if (!types.length) return res.status(404).json({ message: "Habit not found." });
+    if (active) {
+      await pool.query("DELETE FROM user_hidden_habit_types WHERE user_id = ? AND habit_type_id = ?", [req.session.userId, id]);
+    } else {
+      await pool.query("INSERT IGNORE INTO user_hidden_habit_types (user_id, habit_type_id) VALUES (?, ?)", [req.session.userId, id]);
+    }
+    res.json({ id, kind: "standard", isActive: active });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not update habit visibility." });
+  }
+});
+
 app.get("/api/custom-habits", requireHabitSession, async (req, res) => {
   try {
-    const [rows] = await pool.query("SELECT id, name, unit FROM custom_habits WHERE user_id = ? ORDER BY id", [req.session.userId]);
+    const [rows] = await pool.query("SELECT id, name, unit FROM custom_habits WHERE user_id = ? AND is_active = 1 ORDER BY id", [req.session.userId]);
     res.json(rows);
   } catch (error) {
     console.error(error);
@@ -257,9 +306,54 @@ app.post("/api/custom-habits", requireHabitSession, async (req, res) => {
     const [result] = await pool.query("INSERT INTO custom_habits (user_id, name, unit) VALUES (?, ?, ?)", [req.session.userId, name, unit]);
     res.status(201).json({ id: result.insertId, name, unit });
   } catch (error) {
-    if (error.code === "ER_DUP_ENTRY") return res.status(409).json({ message: "You already have a habit with this name." });
+    if (error.code === "ER_DUP_ENTRY") return res.status(409).json({ message: "A habit with this name already exists. Restore it from Removed habits if needed." });
     console.error(error);
     res.status(500).json({ message: "Could not create habit." });
+  }
+});
+
+// Editing a custom habit updates its label/unit, without touching past entries.
+app.patch("/api/custom-habits/:id", requireHabitSession, async (req, res) => {
+  const id = parseUserId(req.params.id);
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+  const unit = typeof req.body?.unit === "string" ? req.body.unit.trim() : "";
+  if (!id || !name || name.length > 50 || !unit || unit.length > 30) {
+    return res.status(400).json({ message: "Enter a valid name (1-50 characters) and unit (1-30 characters)." });
+  }
+  if (["water", "sleep"].includes(name.toLowerCase())) {
+    return res.status(400).json({ message: "Water and sleep are built-in habits." });
+  }
+  try {
+    const [result] = await pool.query(
+      "UPDATE custom_habits SET name = ?, unit = ? WHERE id = ? AND user_id = ? AND is_active = 1",
+      [name, unit, id, req.session.userId]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: "Habit not found." });
+    res.json({ id, name, unit, isActive: true, kind: "custom" });
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") return res.status(409).json({ message: "You already have a habit with that name." });
+    console.error(error);
+    res.status(500).json({ message: "Could not edit habit." });
+  }
+});
+
+// Removal is a reversible soft-delete: custom_habit_entries are never deleted.
+app.patch("/api/custom-habits/:id/visibility", requireHabitSession, async (req, res) => {
+  const id = parseUserId(req.params.id);
+  const { active } = req.body || {};
+  if (!id || typeof active !== "boolean") {
+    return res.status(400).json({ message: "Choose a valid habit and visibility status." });
+  }
+  try {
+    const [result] = await pool.query(
+      "UPDATE custom_habits SET is_active = ? WHERE id = ? AND user_id = ?",
+      [active, id, req.session.userId]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: "Habit not found." });
+    res.json({ id, kind: "custom", isActive: active });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not update habit visibility." });
   }
 });
 
@@ -273,7 +367,7 @@ app.put("/api/custom-habits/:id/entries", requireHabitSession, async (req, res) 
     return res.status(400).json({ message: "Choose a valid date and a non-negative value up to 99999999.99." });
   }
   try {
-    const [rows] = await pool.query("SELECT id FROM custom_habits WHERE id = ? AND user_id = ?", [id, req.session.userId]);
+    const [rows] = await pool.query("SELECT id FROM custom_habits WHERE id = ? AND user_id = ? AND is_active = 1", [id, req.session.userId]);
     if (!rows.length) return res.status(404).json({ message: "Habit not found." });
     await pool.query(`INSERT INTO custom_habit_entries (custom_habit_id, entry_date, value) VALUES (?, ?, ?)
       ON DUPLICATE KEY UPDATE value = VALUES(value)`, [id, entryDate, number]);
@@ -285,12 +379,16 @@ app.put("/api/custom-habits/:id/entries", requireHabitSession, async (req, res) 
 });
 
 // HABIT TYPES
-app.get("/api/habits", async (_req, res) => {
+app.get("/api/habits", requireHabitSession, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, name, unit, description
-       FROM habit_types
-       ORDER BY id`
+      `SELECT ht.id, ht.name, ht.unit, ht.description
+       FROM habit_types ht
+       LEFT JOIN user_hidden_habit_types hidden
+         ON hidden.habit_type_id = ht.id AND hidden.user_id = ?
+       WHERE hidden.user_id IS NULL
+       ORDER BY ht.id`,
+      [req.session.userId]
     );
 
     res.json(rows);
@@ -303,9 +401,18 @@ app.get("/api/habits", async (_req, res) => {
   }
 });
 
+function requireOwnHabitAccount(req, res, next) {
+  if (!req.session.userId) return res.status(401).json({ message: "Please log in." });
+  const userId = parseUserId(req.params.userId);
+  if (!userId) return res.status(400).json({ message: "Invalid user id." });
+  if (req.session.userId !== userId) return res.status(403).json({ message: "You can only access your own habits." });
+  next();
+}
+
 // HABITS FOR ONE USER
 app.get(
   "/api/users/:userId/habits",
+  requireOwnHabitAccount,
   async (req, res) => {
     const userId = parseUserId(
       req.params.userId
@@ -366,6 +473,7 @@ app.get(
 // CREATE OR UPDATE A USER'S HABIT ENTRY
 app.put(
   "/api/users/:userId/habits/:habitName",
+  requireOwnHabitAccount,
   async (req, res) => {
     const userId = parseUserId(
       req.params.userId
@@ -425,6 +533,11 @@ app.put(
       }
 
       const habit = habitRows[0];
+      const [hidden] = await pool.query(
+        "SELECT 1 FROM user_hidden_habit_types WHERE user_id = ? AND habit_type_id = ?",
+        [userId, habit.id]
+      );
+      if (hidden.length) return res.status(409).json({ message: "Restore this habit before logging new entries." });
 
       await pool.query(
         `INSERT INTO habit_entries
@@ -469,6 +582,7 @@ app.put(
 // DELETE ONE USER'S HABIT ENTRY
 app.delete(
   "/api/users/:userId/habits/:habitName/:entryDate",
+  requireOwnHabitAccount,
   async (req, res) => {
     const userId = parseUserId(
       req.params.userId
@@ -515,6 +629,7 @@ app.delete(
 // GET STREAK FOR A SPECIFIC HABIT
 app.get(
   "/api/users/:userId/habits/:habitName/streak",
+  requireOwnHabitAccount,
   async (req, res) => {
     const userId = parseUserId(req.params.userId);
     const habitName = String(req.params.habitName || "").toLowerCase();

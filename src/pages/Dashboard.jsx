@@ -184,10 +184,6 @@ function Dashboard() {
   const [sleep, setSleep] = useState("");
   const [customHabits, setCustomHabits] = useState([]);
   const [customValues, setCustomValues] = useState({});
-  const [newHabitName, setNewHabitName] = useState("");
-  const [newHabitUnit, setNewHabitUnit] = useState("");
-  const [createMessage, setCreateMessage] = useState("");
-  const [isCreatingHabit, setIsCreatingHabit] = useState(false);
   const [tasks, setTasks] = useState([]);
   const [goals, setGoals] = useState([]);
   const [events, setEvents] = useState([]);
@@ -307,17 +303,28 @@ function Dashboard() {
     return () => controller.abort();
   }, [navigate]);
 
+  // Archived habits remain in `habits` for history, but are excluded from daily tracking.
+  const activeStandardNames = useMemo(
+    () => new Set(habitTypes.map((type) => type.name.toLowerCase())), [habitTypes]
+  );
+  const activeCustomIds = useMemo(
+    () => new Set(customHabits.map((habit) => Number(habit.id))), [customHabits]
+  );
+  const isActiveEntry = (entry) => entry.customHabitId != null
+    ? activeCustomIds.has(Number(entry.customHabitId))
+    : activeStandardNames.has(String(entry.habit).toLowerCase());
+
   const todaysHabits = useMemo(
-    () => habits.filter((entry) => String(entry.entryDate).slice(0, 10) === today),
-    [habits, today]
+    () => habits.filter((entry) => String(entry.entryDate).slice(0, 10) === today && isActiveEntry(entry)),
+    [habits, today, activeStandardNames, activeCustomIds]
   );
 
   const selectedDateEntries = useMemo(
     () =>
       habits.filter(
-        (entry) => String(entry.entryDate).slice(0, 10) === selectedDate
+        (entry) => String(entry.entryDate).slice(0, 10) === selectedDate && isActiveEntry(entry)
       ),
-    [habits, selectedDate]
+    [habits, selectedDate, activeStandardNames, activeCustomIds]
   );
 
   useEffect(() => {
@@ -338,12 +345,13 @@ function Dashboard() {
 
     return habits.filter((entry) => {
       const entryDate = String(entry.entryDate).slice(0, 10);
-      return entryDate >= startDate && entryDate <= today;
+      return entryDate >= startDate && entryDate <= today && isActiveEntry(entry);
     });
-  }, [habits, today]);
+  }, [habits, today, activeStandardNames, activeCustomIds]);
 
   const completedHabitNames = useMemo(
-    () => new Set(todaysHabits.map((entry) => entry.habit)),
+    () => new Set(todaysHabits.map((entry) => entry.customHabitId != null
+      ? `custom:${entry.customHabitId}` : `standard:${String(entry.habit).toLowerCase()}`)),
     [todaysHabits]
   );
 
@@ -385,7 +393,9 @@ function Dashboard() {
     setHabitMessage("");
     setError("");
 
-    if (water === "" && sleep === "" && !Object.values(customValues).some((value) => value !== "")) {
+    if ((!activeStandardNames.has("water") || water === "") &&
+        (!activeStandardNames.has("sleep") || sleep === "") &&
+        !customHabits.some((habit) => customValues[habit.id] !== undefined && customValues[habit.id] !== "")) {
       setHabitMessage("Enter at least one habit value before saving.");
       return;
     }
@@ -394,8 +404,8 @@ function Dashboard() {
 
     try {
       await Promise.all([
-        saveHabit("water", water),
-        saveHabit("sleep", sleep),
+        ...(activeStandardNames.has("water") ? [saveHabit("water", water)] : []),
+        ...(activeStandardNames.has("sleep") ? [saveHabit("sleep", sleep)] : []),
         ...customHabits.filter((habit) => customValues[habit.id] !== undefined && customValues[habit.id] !== "")
           .map(async (habit) => {
             const response = await fetch(`${API_URL}/api/custom-habits/${habit.id}/entries`, {
@@ -414,32 +424,6 @@ function Dashboard() {
       setHabitMessage(saveError.message || "Could not save habits.");
     } finally {
       setIsSavingHabits(false);
-    }
-  };
-
-  const handleCreateHabit = async (event) => {
-    event.preventDefault();
-    setCreateMessage("");
-    if (!newHabitName.trim() || !newHabitUnit.trim()) {
-      setCreateMessage("Enter a habit name and unit.");
-      return;
-    }
-    setIsCreatingHabit(true);
-    try {
-      const response = await fetch(`${API_URL}/api/custom-habits`, {
-        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newHabitName, unit: newHabitUnit }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Could not create habit.");
-      setCustomHabits((current) => [...current, data]);
-      setNewHabitName("");
-      setNewHabitUnit("");
-      setCreateMessage("Habit created. You can log an entry below.");
-    } catch (error) {
-      setCreateMessage(error.message);
-    } finally {
-      setIsCreatingHabit(false);
     }
   };
 
@@ -541,6 +525,7 @@ function Dashboard() {
           <a className="dashboard-nav-link" href="#progress">
             Progress
           </a>
+          <Link className="dashboard-nav-link" to="/habits/manage">Manage habits</Link>
           <button
             className="dashboard-logout"
             type="button"
@@ -622,7 +607,7 @@ function Dashboard() {
                 <span className="dashboard-card-label">Habits</span>
                 <h2>Daily habit tracking</h2>
                 <p className="dashboard-card-description">
-                  Log your daily habits without leaving the dashboard.
+                  Log your daily habits.
                 </p>
               </div>
               <span className="dashboard-date-badge">
@@ -630,21 +615,20 @@ function Dashboard() {
               </span>
             </div>
 
-            <form className="dashboard-custom-habit-form" onSubmit={handleCreateHabit}>
-              <label className="dashboard-field">
-                <span>New habit name</span>
-                <input value={newHabitName} onChange={(event) => setNewHabitName(event.target.value)} maxLength={50} placeholder="Reading" required />
-              </label>
-              <label className="dashboard-field">
-                <span>Unit of measurement</span>
-                <input value={newHabitUnit} onChange={(event) => setNewHabitUnit(event.target.value)} maxLength={30} placeholder="minutes" required />
-              </label>
-              <button className="dashboard-save-habits" type="submit" disabled={isCreatingHabit}>
-                {isCreatingHabit ? "Creating..." : "Create habit"}
-              </button>
-              {createMessage && <p className="dashboard-habit-message" role="status">{createMessage}</p>}
-            </form>
+            <div className="dashboard-manage-row">
+              <p>Add, edit, or remove habits.</p>
+              <Link className="dashboard-manage-link" to="/habits/manage">Manage habits →</Link>
+            </div>
 
+            {totalTrackedHabits === 0 ? (
+              <div className="dashboard-empty-state" role="status">
+                <span aria-hidden="true">＋</span>
+                <div>
+                  <strong>You don't have any active habits yet.</strong>
+                  <p><Link to="/habits/manage">Add a habit</Link> or restore a removed one to start tracking.</p>
+                </div>
+              </div>
+            ) : (
             <div className="dashboard-habit-layout">
               <form className="dashboard-habit-form" onSubmit={handleHabitSubmit}>
                 <label className="dashboard-field dashboard-field-date">
@@ -660,6 +644,7 @@ function Dashboard() {
                   />
                 </label>
 
+                {activeStandardNames.has("water") && (
                 <label className="dashboard-field">
                   <span>Water</span>
                   <div className="dashboard-input-with-unit">
@@ -676,6 +661,9 @@ function Dashboard() {
                   </div>
                 </label>
 
+                )}
+
+                {activeStandardNames.has("sleep") && (
                 <label className="dashboard-field">
                   <span>Sleep</span>
                   <div className="dashboard-input-with-unit">
@@ -692,6 +680,8 @@ function Dashboard() {
                     <b>hours</b>
                   </div>
                 </label>
+
+                )}
 
                 {customHabits.map((habit) => (
                   <label className="dashboard-field" key={habit.id}>
@@ -728,7 +718,7 @@ function Dashboard() {
                     <h3>{formatShortDate(selectedDate)}</h3>
                   </div>
                   <strong>
-                    {selectedDateEntries.length}/{Math.max(totalTrackedHabits, 2)} logged
+                    {selectedDateEntries.length}/{totalTrackedHabits} logged
                   </strong>
                 </div>
 
@@ -755,6 +745,8 @@ function Dashboard() {
                 )}
               </div>
             </div>
+
+            )}
 
             <div className="dashboard-history-section">
               <div className="dashboard-subheading-row">
@@ -786,7 +778,7 @@ function Dashboard() {
                       {habits.slice(0, 10).map((entry) => (
                         <tr key={entry.id}>
                           <td>{String(entry.entryDate).slice(0, 10)}</td>
-                          <td>{entry.habit}</td>
+                          <td>{entry.habit}{!isActiveEntry(entry) ? " (removed)" : ""}</td>
                           <td>{entry.value} {entry.unit}</td>
                         </tr>
                       ))}
@@ -845,7 +837,7 @@ function Dashboard() {
 
             <p className="dashboard-progress-copy">
               {totalTrackedHabits === 0
-                ? "No habit types are available yet."
+                ? "No active habits. Add or restore a habit to start tracking."
                 : `${completedToday} of ${totalTrackedHabits} tracked habits logged today.`}
             </p>
 

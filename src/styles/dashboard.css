@@ -966,3 +966,9 @@ html {
 @media (max-width: 700px) {
   .dashboard-custom-habit-form { grid-template-columns: minmax(0, 1fr); }
 }
+
+.dashboard-manage-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 15px 18px; border: 1px solid #dae9f6; border-radius: 15px; background: #f1f8ff; margin-bottom: 18px; }
+.dashboard-manage-row p { margin: 0; color: #60749a; font-size: 13px; line-height: 1.5; }
+.dashboard-manage-link { display: inline-flex; align-items: center; white-space: nowrap; padding: 10px 15px; border-radius: 10px; background: #167dd1; color: #fff; font-size: 14px; font-weight: 800; }
+.dashboard-manage-link:hover { background: #0a5ea9; }
+.dashboard-manage-link:focus-visible { outline: 3px solid #5db5f4; outline-offset: 3px; }

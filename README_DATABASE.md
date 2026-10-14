@@ -73,6 +73,24 @@ USE ontrack_db;
 SHOW TABLES;
 ```
 
+## Existing database: one-time habit management migration
+
+**Important:** If you already created `ontrack_db` before this feature, run the
+migration **once** before starting the updated app. Re-running `database.sql`
+alone will *not* add new columns to existing tables, because it uses
+`CREATE TABLE IF NOT EXISTS`.
+
+Open the MySQL prompt from the project root (`mysql -u root -p`) and run:
+
+```sql
+SOURCE server/migrate_habit_management.sql;
+```
+
+This adds `custom_habits.is_active` (default 1 for all existing habits) and
+`user_hidden_habit_types`. Existing accounts, custom habits and entries remain
+intact. **Do not run the migration twice**; MySQL will reject a duplicate column.
+For a brand-new database, simply use `SOURCE database.sql;` as in step 3.
+
 ## 4. Configure the backend
 
 Inside the `server` folder, copy `.env.example` to `.env` and set your local MySQL password:
@@ -182,3 +200,31 @@ VITE_API_URL=http://localhost:5001
 * Everyone's local database is separate. Signing up on your machine will not create an account in a teammate's database.
 * Passwords are hashed with `bcrypt` before storage and should never be stored as plain text.
 * If the project later moves to a shared/cloud database, this guide should be updated with the new database configuration.
+
+## Habit management (new)
+
+After logging in, open **Dashboard → Manage habits** (`/habits/manage`). The
+page supports creating habits, editing custom names/units, removing any active
+habit after confirmation, cancelling removal, and restoring removed habits.
+Built-in water/sleep labels and units are fixed; you can hide/restore them per
+account. The dashboard only offers active habits for current and future daily
+tracking, and preserves older entries in the history section.
+
+Changes are persisted in MySQL. Removing a custom habit sets `is_active = 0`
+instead of deleting its row, so related `custom_habit_entries` are retained.
+Built-in habits are hidden per account in `user_hidden_habit_types`, leaving
+`habit_entries` unchanged. Both visibility APIs require a login; custom-habit
+updates additionally check `user_id = req.session.userId`.
+
+### Suggested acceptance checks
+
+1. Sign in and create a custom habit on `/habits/manage`.
+2. Save an entry, then use **Remove → Cancel**. Confirm the habit remains.
+3. Use **Remove → Remove habit**. Confirm the habit is missing from the daily
+   form today and on another date, but its entry is still in **History**.
+4. Refresh, log out/in, and confirm the habit remains removed.
+5. Use **Restore** and check the daily form returns with its existing entries.
+6. Remove water, sleep, and all custom habits; confirm the empty-state prompt.
+7. Log in as a different user and confirm neither user can manage the other's
+   custom habits (the server returns 404 for an unowned habit id).
+
