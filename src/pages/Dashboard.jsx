@@ -178,7 +178,7 @@ function Dashboard() {
   const [habitMessage, setHabitMessage] = useState("");
   
 
-  const today = localDateString();
+  const [today, setToday] = useState(() => localDateString());
   const [selectedDate, setSelectedDate] = useState(today);
   const [water, setWater] = useState("");
   const [sleep, setSleep] = useState("");
@@ -187,6 +187,15 @@ function Dashboard() {
   const [tasks, setTasks] = useState([]);
   const [goals, setGoals] = useState([]);
   const [events, setEvents] = useState([]);
+
+  // Keep the dashboard's definition of "today" aligned with the user's local
+  // calendar date even if the page stays open across midnight.
+  useEffect(() => {
+    const syncToday = () => setToday(localDateString());
+    const timer = window.setInterval(syncToday, 60 * 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   const loadHabitEntries = async (userId, signal) => {
     const response = await fetch(`${API_URL}/api/users/${userId}/habits`, {
@@ -560,6 +569,70 @@ function Dashboard() {
           </p>
         )}
 
+        <article
+          className="dashboard-card dashboard-card-progress dashboard-today-progress"
+          id="progress"
+        >
+          <div className="dashboard-card-heading">
+            <div>
+              <span className="dashboard-card-label">Progress</span>
+              <h2>Today&apos;s progress</h2>
+            </div>
+            <div className="dashboard-progress-heading">
+              <span className="dashboard-date-badge">{formatShortDate(today)}</span>
+              <strong className="dashboard-progress-value">{progressPercent}%</strong>
+            </div>
+          </div>
+
+          <div
+            className="dashboard-progress-track"
+            role="progressbar"
+            aria-label="Today's habit progress"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow={progressPercent}
+          >
+            <div
+              className="dashboard-progress-fill"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+
+          <p className="dashboard-progress-copy">
+            {totalTrackedHabits === 0
+              ? "No active habits. Add or restore a habit to start tracking."
+              : `${completedToday} of ${totalTrackedHabits} tracked habits logged today.`}
+          </p>
+
+          {totalTrackedHabits === 0 ? (
+            <div className="dashboard-empty-state compact">
+              <span aria-hidden="true">＋</span>
+              <div>
+                <strong>No active habits yet.</strong>
+                <p>Add or restore a habit to begin tracking today&apos;s progress.</p>
+              </div>
+            </div>
+          ) : todaysHabits.length === 0 ? (
+            <div className="dashboard-empty-state compact">
+              <span aria-hidden="true">○</span>
+              <div>
+                <strong>No habits logged today.</strong>
+                <p>Today&apos;s progress only includes entries from the current calendar day.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="dashboard-recent-list" aria-label="Habits logged today">
+              {todaysHabits.map((entry) => (
+                <div key={entry.id} className="dashboard-recent-row">
+                  <span>{formatShortDate(today)}</span>
+                  <strong>{entry.habit}</strong>
+                  <b>{entry.value} {entry.unit}</b>
+                </div>
+              ))}
+            </div>
+          )}
+        </article>
+
         <section className="dashboard-stats" aria-label="Progress summary">
           <article className="dashboard-stat-card">
             <span className="dashboard-stat-icon" aria-hidden="true">✓</span>
@@ -812,55 +885,6 @@ function Dashboard() {
             onDelete={(id) => deletePlanningItem("events", id, setEvents)}
           />
 
-          <article className="dashboard-card dashboard-card-progress" id="progress">
-            <div className="dashboard-card-heading">
-              <div>
-                <span className="dashboard-card-label">Progress</span>
-                <h2>Today&apos;s progress</h2>
-              </div>
-              <strong className="dashboard-progress-value">{progressPercent}%</strong>
-            </div>
-
-            <div
-              className="dashboard-progress-track"
-              role="progressbar"
-              aria-label="Today's habit progress"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-valuenow={progressPercent}
-            >
-              <div
-                className="dashboard-progress-fill"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-
-            <p className="dashboard-progress-copy">
-              {totalTrackedHabits === 0
-                ? "No active habits. Add or restore a habit to start tracking."
-                : `${completedToday} of ${totalTrackedHabits} tracked habits logged today.`}
-            </p>
-
-            {habits.length === 0 ? (
-              <div className="dashboard-empty-state compact">
-                <span aria-hidden="true">↗</span>
-                <div>
-                  <strong>No progress history yet.</strong>
-                  <p>Your recent habit activity will appear here as you log entries.</p>
-                </div>
-              </div>
-            ) : (
-              <div className="dashboard-recent-list">
-                {habits.slice(0, 4).map((entry) => (
-                  <div key={entry.id} className="dashboard-recent-row">
-                    <span>{String(entry.entryDate).slice(0, 10)}</span>
-                    <strong>{entry.habit}</strong>
-                    <b>{entry.value} {entry.unit}</b>
-                  </div>
-                ))}
-              </div>
-            )}
-          </article>
         </section>
       </section>
     </main>
