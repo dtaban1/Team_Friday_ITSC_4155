@@ -5,6 +5,7 @@ const session = require("express-session");
 require("dotenv").config();
 
 const pool = require("./db");
+const { HABIT_GROUPS, findHabitGroup, validateSelectedHabits, addHabitsFromGroup } = require("./habitGroups");
 
 const app = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -258,6 +259,49 @@ app.get("/api/habit-management", requireHabitSession, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Could not load habit management." });
+  }
+});
+
+// Preset groups are available to every logged-in user. The catalog itself is read-only.
+app.get("/api/habit-groups", requireHabitSession, (_req, res) => {
+  res.json(HABIT_GROUPS);
+});
+
+// Add a user-selected subset atomically. Existing habits are skipped rather than duplicated;
+// previously removed habits are restored so that saved entries stay intact.
+app.post("/api/habit-groups/:groupId", requireHabitSession, async (req, res) => {
+  const group = findHabitGroup(req.params.groupId);
+  if (!group) return res.status(404).json({ message: "Habit group not found." });
+
+  let selected;
+  try {
+    selected = validateSelectedHabits(group, req.body?.habitIds);
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const result = await addHabitsFromGroup(connection, req.session.userId, selected);
+    await connection.commit();
+
+    const count = result.added.length + result.restored.length;
+    const message = count === 0
+      ? `You already track all selected habits from “${group.name}”. No duplicates were added.`
+      : `“${group.name}” added: ${result.added.length} new, ${result.restored.length} restored` +
+        (result.skipped.length ? `, ${result.skipped.length} already tracked.` : ".");
+
+    res.json({ groupId: group.id, ...result, message, alreadyAdded: count === 0 });
+  } catch (error) {
+    if (connection) {
+      try { await connection.rollback(); } catch (rollbackError) { console.error(rollbackError); }
+    }
+    console.error(error);
+    res.status(500).json({ message: "Could not add this group. Please try again." });
+  } finally {
+    if (connection) connection.release();
   }
 });
 

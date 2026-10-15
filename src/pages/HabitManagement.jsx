@@ -33,6 +33,9 @@ function HabitManagement() {
   const [editName, setEditName] = useState("");
   const [editUnit, setEditUnit] = useState("");
   const [pendingRemoval, setPendingRemoval] = useState(null);
+  const [habitGroups, setHabitGroups] = useState([]);
+  const [groupSelections, setGroupSelections] = useState({});
+  const [groupCategory, setGroupCategory] = useState("All");
 
   const loadHabits = async () => {
     const data = await apiRequest("/api/habit-management");
@@ -42,7 +45,11 @@ function HabitManagement() {
   useEffect(() => {
     const load = async () => {
       try {
-        await loadHabits();
+        const [, groups] = await Promise.all([loadHabits(), apiRequest("/api/habit-groups")]);
+        setHabitGroups(groups);
+        setGroupSelections(Object.fromEntries(groups.map((group) => [
+          group.id, group.habits.map((habit) => habit.id),
+        ])));
       } catch (requestError) {
         if (requestError.status === 401) {
           navigate("/login", { replace: true });
@@ -58,6 +65,12 @@ function HabitManagement() {
 
   const active = useMemo(() => habits.filter((habit) => habit.isActive), [habits]);
   const removed = useMemo(() => habits.filter((habit) => !habit.isActive), [habits]);
+  const activeNames = useMemo(() => new Set(active.map((habit) => habit.name.trim().toLowerCase())), [active]);
+  const removedNames = useMemo(() => new Set(removed.map((habit) => habit.name.trim().toLowerCase())), [removed]);
+  const groupCategories = useMemo(() => ["All", ...new Set(habitGroups.map((group) => group.category))], [habitGroups]);
+  const filteredGroups = useMemo(() => habitGroups.filter((group) =>
+    groupCategory === "All" || group.category === groupCategory
+  ), [habitGroups, groupCategory]);
 
   const resetNotice = () => {
     setMessage("");
@@ -79,6 +92,42 @@ function HabitManagement() {
       setMessage(`“${created.name}” has been added to your dashboard.`);
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleGroupHabit = (groupId, habitId) => {
+    resetNotice();
+    setGroupSelections((current) => {
+      const selected = current[groupId] || [];
+      return {
+        ...current,
+        [groupId]: selected.includes(habitId)
+          ? selected.filter((id) => id !== habitId)
+          : [...selected, habitId],
+      };
+    });
+  };
+
+  const handleAddGroup = async (group) => {
+    resetNotice();
+    const habitIds = groupSelections[group.id] || [];
+    if (habitIds.length === 0) {
+      setError(`Select at least one habit from “${group.name}” before adding the group.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await apiRequest(`/api/habit-groups/${group.id}`, {
+        method: "POST",
+        body: JSON.stringify({ habitIds }),
+      });
+      await loadHabits(); // Refresh badges and Current Habits without requiring a page reload.
+      setMessage(result.message);
+    } catch (requestError) {
+      if (requestError.status === 401) navigate("/login", { replace: true });
+      else setError(requestError.message);
     } finally {
       setBusy(false);
     }
@@ -183,6 +232,62 @@ function HabitManagement() {
                 </label>
                 <button className="management-primary" type="submit" disabled={busy}>Add habit</button>
               </form>
+            </section>
+
+            <section className="dashboard-card management-section" aria-labelledby="habit-groups-title">
+              <div className="management-list-heading management-groups-heading">
+                <div>
+                  <span className="dashboard-card-label">Browse presets</span>
+                  <h2 id="habit-groups-title">Add habit groups</h2>
+                  <p className="management-groups-description">Pick a hobby or interest, preview the included habits, and choose which ones to add. Existing habits won't be duplicated.</p>
+                </div>
+              </div>
+
+              <div className="management-category-filters" role="group" aria-label="Filter habit groups by category">
+                {groupCategories.map((category) => (
+                  <button key={category} className={`management-category-chip ${groupCategory === category ? "is-selected" : ""}`}
+                    type="button" aria-pressed={groupCategory === category} disabled={busy}
+                    onClick={() => setGroupCategory(category)}>{category}</button>
+                ))}
+              </div>
+
+              <div className="management-group-grid">
+                {filteredGroups.map((group) => {
+                  const selected = groupSelections[group.id] || [];
+                  const trackedCount = group.habits.filter((habit) => activeNames.has(habit.name.toLowerCase())).length;
+                  return (
+                    <article className="management-group-card" key={group.id} aria-labelledby={`group-title-${group.id}`}>
+                      <div className="management-group-header">
+                        <span className="management-group-category">{group.category}</span>
+                        {trackedCount === group.habits.length && <span className="management-group-complete">Already added</span>}
+                      </div>
+                      <h3 id={`group-title-${group.id}`}>{group.name}</h3>
+                      <p className="management-group-description">{group.description}</p>
+                      <fieldset className="management-group-habits" disabled={busy}>
+                        <legend>Included habits · {selected.length} of {group.habits.length} selected</legend>
+                        {group.habits.map((habit) => {
+                          const name = habit.name.toLowerCase();
+                          const status = activeNames.has(name) ? "Already tracking"
+                            : removedNames.has(name) ? "Will restore" : "New";
+                          return (
+                            <label className="management-group-habit" key={habit.id}>
+                              <input type="checkbox" checked={selected.includes(habit.id)}
+                                onChange={() => toggleGroupHabit(group.id, habit.id)} />
+                              <span className="management-group-habit-text">
+                                <strong>{habit.name}</strong>
+                                <small>{habit.unit}</small>
+                              </span>
+                              <span className={`management-group-habit-status ${status === "Already tracking" ? "is-tracked" : ""}`}>{status}</span>
+                            </label>
+                          );
+                        })}
+                      </fieldset>
+                      <button className="management-primary management-add-group" type="button" disabled={busy}
+                        onClick={() => handleAddGroup(group)}>{busy ? "Saving..." : "Add Group"}</button>
+                    </article>
+                  );
+                })}
+              </div>
             </section>
 
             <section className="dashboard-card management-section" aria-labelledby="current-habits-title">

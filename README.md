@@ -86,3 +86,12 @@ http://localhost:5173/
 ```
 
 Open that address in your browser.
+
+## Habit groups
+
+On `/habits/manage`, browse preset groups by category, select or deselect
+individual habits, and click **Add Group**. Added habits appear on `/dashboard`
+using the existing custom-habit tracking fields. Presets are defined in
+`server/habitGroups.js` and saved per-account by the backend. Removed habits
+can be restored and duplicates are skipped. No additional database migration
+is required beyond the habit-management setup in `README_DATABASE.md`.
