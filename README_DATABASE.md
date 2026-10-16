@@ -228,3 +228,32 @@ updates additionally check `user_id = req.session.userId`.
 7. Log in as a different user and confirm neither user can manage the other's
    custom habits (the server returns 404 for an unowned habit id).
 
+
+## Preset habit groups
+
+The **Manage habits** page now includes a **Add habit groups** section for Fitness,
+Studying, Reading, Gaming, Wellness, and Creativity. Select a category, preview a
+preset, check/uncheck the habits you want, and click **Add Group**. The page
+immediately refreshes the habit list, and newly selected habits will be available
+on the dashboard. You can edit/remove newly created habits with the existing
+management controls.
+
+This feature reuses `custom_habits` and `user_hidden_habit_types` so **no additional
+SQL migration is needed** beyond the existing habit-management migration described
+above. The selected habits are saved against your logged-in account in MySQL,
+not browser-only storage. Re-adding an already tracked habit skips the duplicate;
+re-adding a previously removed habit restores the original record and its history.
+The built-in Water/Sleep habits remain built-in (they are restored if hidden).
+
+The server defines preset group names, habit names and units in
+`server/habitGroups.js`; changing these definitions changes what future additions
+will offer, not any users' existing habit entries.
+
+API endpoints (session required):
+
+- `GET /api/habit-groups` - get categories/groups and each group's selectable habits.
+- `POST /api/habit-groups/:groupId` with JSON `{ "habitIds": ["study-time", "review-notes"] }` - add only the selected preset habits. Returns arrays `added`, `restored`, `skipped`, plus `message` and `alreadyAdded`. Unknown group/IDs or empty selections are rejected.
+
+Run `cd server && npm test` to run catalog/selection/duplicate/restoration tests
+without requiring a live MySQL connection. To use the application itself you still
+need the existing MySQL server running and both frontend/backend dependencies installed.
