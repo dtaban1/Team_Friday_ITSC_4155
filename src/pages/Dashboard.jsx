@@ -170,7 +170,6 @@ function Dashboard() {
   const [user, setUser] = useState(null);
   const [habits, setHabits] = useState([]);
   const [habitTypes, setHabitTypes] = useState([]);
-  const [streaks, setStreaks] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isSavingHabits, setIsSavingHabits] = useState(false);
@@ -215,22 +214,6 @@ function Dashboard() {
     setHabits(entries);
     return entries;
   };
-
-  const loadStreaks = async (userId, types, signal) => {
-  const results = await Promise.all(
-    types.map(async (type) => {
-      const response = await fetch(
-        `${API_URL}/api/users/${userId}/habits/${type.name}/streak`,
-        { credentials: "include", signal }
-      );
-      const data = await response.json();
-      return [type.name, response.ok ? data.streak : 0];
-    })
-  );
-
-  setStreaks(Object.fromEntries(results));
-  };
-
 
   useEffect(() => {
     const controller = new AbortController();
@@ -291,8 +274,7 @@ function Dashboard() {
         setTasks(await taskResponse.json());
         setGoals(await goalResponse.json());
         setEvents(await eventResponse.json());
-        //new line below, fetches streaks so that we know the user's habit types
-        await loadStreaks(currentUser.id, Array.isArray(typeData) ? typeData : [], controller.signal);
+        
 
       } catch (loadError) {
         if (loadError.name !== "AbortError") {
@@ -357,6 +339,50 @@ function Dashboard() {
       return entryDate >= startDate && entryDate <= today && isActiveEntry(entry);
     });
   }, [habits, today, activeStandardNames, activeCustomIds]);
+
+  const streakSummary = useMemo(() => {
+    const prevDay = (dateStr) => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return localDateString(new Date(y, m - 1, d - 1));
+  };
+  // Today doesn't have to be logged yet; yesterday keeps the streak alive.
+  const countStreak = (dates) => {
+    let cursor = dates.has(today) ? today : prevDay(today);
+    let streak = 0;
+    while (dates.has(cursor)) {
+      streak++;
+      cursor = prevDay(cursor);
+    }
+    return streak;
+  };
+  const allDates = new Set();
+  const byHabit = new Map();
+
+  for (const entry of habits) {
+    if (!isActiveEntry(entry)) continue;
+
+      const date = String(entry.entryDate).slice(0, 10);
+    if (date > today) continue;
+
+    const key = entry.customHabitId != null
+      ? `custom:${entry.customHabitId}`
+      : `standard:${String(entry.habit).toLowerCase()}`;
+
+    allDates.add(date);
+    if (!byHabit.has(key)) byHabit.set(key, { name: entry.habit, dates: new Set() });
+    byHabit.get(key).dates.add(date);
+  }
+  const topHabits = [...byHabit.values()]
+    .map(({ name, dates }) => ({
+      name,
+      streak: countStreak(dates),
+      entries: dates.size,
+    }))
+    .sort((a, b) => b.streak - a.streak || b.entries - a.entries || a.name.localeCompare(b.name))
+    .slice(0, 2);
+
+  return { overall: countStreak(allDates), topHabits };
+}, [habits, today, activeStandardNames, activeCustomIds]);
 
   const completedHabitNames = useMemo(
     () => new Set(todaysHabits.map((entry) => entry.customHabitId != null
@@ -427,7 +453,6 @@ function Dashboard() {
       ]);
 
       await loadHabitEntries(user.id);
-      await loadStreaks(user.id, habitTypes); //this line is 4 refreshing streaks after saving a habit
       setHabitMessage(`Habits saved for ${formatShortDate(selectedDate)}.`);
     } catch (saveError) {
       setHabitMessage(saveError.message || "Could not save habits.");
@@ -658,15 +683,23 @@ function Dashboard() {
             </div>
           </article>
 
-        {habitTypes.map((type) => (
-          <article className="dashboard-stat-card" key={type.id}>
-           <span className="dashboard-stat-icon amber" aria-hidden="true">🔥</span>
+        <article className="dashboard-stat-card">
+          <span className="dashboard-stat-icon amber" aria-hidden="true">▲</span>
+          <div>
+            <strong>{streakSummary.overall}</strong>
+            <span>day overall streak</span>
+          </div>
+        </article>
+
+        {streakSummary.topHabits.map((item) => (
+          <article className="dashboard-stat-card" key={item.name}>
+           <span className="dashboard-stat-icon amber" aria-hidden="true">▲</span>
            <div>
-             <strong>{streaks[type.name] ?? 0}</strong>
-             <span>{type.name} streak</span>
+             <strong>{item.streak}</strong>
+             <span>{item.name} streak</span>
            </div>
           </article>
-))}
+        ))}
 
         </section>
 
