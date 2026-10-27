@@ -198,6 +198,7 @@ function HabitManagement() {
         <nav className="dashboard-nav" aria-label="Habit management navigation">
           <Link className="dashboard-nav-link" to="/dashboard">Dashboard</Link>
           <Link className="dashboard-nav-link is-active" to="/habits/manage">Manage habits</Link>
+          <Link className="dashboard-nav-link" to="/habits/history">Habit History</Link>
         </nav>
       </header>
 

@@ -983,3 +983,24 @@ html {
 .dashboard-manage-link { display: inline-flex; align-items: center; white-space: nowrap; padding: 10px 15px; border-radius: 10px; background: #167dd1; color: #fff; font-size: 14px; font-weight: 800; }
 .dashboard-manage-link:hover { background: #0a5ea9; }
 .dashboard-manage-link:focus-visible { outline: 3px solid #5db5f4; outline-offset: 3px; }
+
+/* Calendar navigation appears below Date / Selected day and above History. */
+.dashboard-calendar-link-row {
+  display: flex;
+  justify-content: center;
+  margin: 20px 0;
+}
+.dashboard-calendar-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 22px;
+  border-radius: 10px;
+  background: #167dd1;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  text-decoration: none;
+}
+.dashboard-calendar-link:hover { background: #0a5ea9; }
+.dashboard-calendar-link:focus-visible { outline: 3px solid #5db5f4; outline-offset: 3px; }
