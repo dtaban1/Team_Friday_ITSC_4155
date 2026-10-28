@@ -4,6 +4,7 @@ import Login from "./pages/Login.jsx";
 import Signup from "./pages/Signup.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import HabitManagement from "./pages/HabitManagement.jsx";
+import HabitHistory from "./pages/HabitHistory.jsx";
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/habits/history" element={<HabitHistory />} />
       <Route path="/habits/manage" element={<HabitManagement />} />
       <Route path="/habits" element={<Navigate to="/dashboard#habits" replace />} />
     </Routes>

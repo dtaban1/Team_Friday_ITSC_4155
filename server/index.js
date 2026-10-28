@@ -7,6 +7,8 @@ require("dotenv").config();
 const pool = require("./db");
 const { HABIT_GROUPS, findHabitGroup, validateSelectedHabits, addHabitsFromGroup } = require("./habitGroups");
 
+const { setSchedule, getHistory } = require("./habitHistory");
+
 const app = express();
 const isProduction = process.env.NODE_ENV === "production";
 const port = process.env.PORT || 5000;
@@ -122,6 +124,10 @@ app.post("/api/signup", async (req, res) => {
       [email, passwordHash]
     );
 
+    // Every default habit is scheduled starting on account creation.
+    await pool.query(`INSERT INTO habit_schedule_periods (user_id, habit_kind, habit_id, start_date)
+      SELECT ?, 'standard', id, CURDATE() FROM habit_types`, [result.insertId]);
+
     res.status(201).json({
       message: "Account created successfully",
       userId: result.insertId,
@@ -235,6 +241,15 @@ function requireHabitSession(req, res, next) {
   next();
 }
 
+// Monthly history always uses the logged-in account; no user id accepted from the client.
+app.get("/api/habit-history", requireHabitSession, async (req, res) => {
+  const month = String(req.query.month || "");
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || Number(month.slice(0,4)) < 1000)
+    return res.status(400).json({ message: "Provide a valid month (YYYY-MM)." });
+  try { res.json(await getHistory(req.session.userId, month)); }
+  catch (error) { console.error(error); res.status(500).json({ message: "Could not load habit history. Run the history migration first." }); }
+});
+
 // All habits, including removed ones, for the authenticated user's management page.
 app.get("/api/habit-management", requireHabitSession, async (req, res) => {
   try {
@@ -312,19 +327,27 @@ app.patch("/api/habit-management/standard/:id/visibility", requireHabitSession, 
   if (!id || typeof active !== "boolean") {
     return res.status(400).json({ message: "Choose a valid habit and visibility status." });
   }
+  let connection;
   try {
-    const [types] = await pool.query("SELECT id FROM habit_types WHERE id = ?", [id]);
-    if (!types.length) return res.status(404).json({ message: "Habit not found." });
-    if (active) {
-      await pool.query("DELETE FROM user_hidden_habit_types WHERE user_id = ? AND habit_type_id = ?", [req.session.userId, id]);
-    } else {
-      await pool.query("INSERT IGNORE INTO user_hidden_habit_types (user_id, habit_type_id) VALUES (?, ?)", [req.session.userId, id]);
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [types] = await connection.query("SELECT id FROM habit_types WHERE id = ?", [id]);
+    if (!types.length) { await connection.rollback(); return res.status(404).json({ message: "Habit not found." }); }
+    const [hidden] = await connection.query("SELECT 1 FROM user_hidden_habit_types WHERE user_id=? AND habit_type_id=?", [req.session.userId,id]);
+    if (active && hidden.length) {
+      await connection.query("DELETE FROM user_hidden_habit_types WHERE user_id=? AND habit_type_id=?", [req.session.userId,id]);
+      await setSchedule(connection,req.session.userId,'standard',id,true);
+    } else if (!active && !hidden.length) {
+      await connection.query("INSERT INTO user_hidden_habit_types (user_id,habit_type_id) VALUES (?,?)", [req.session.userId,id]);
+      await setSchedule(connection,req.session.userId,'standard',id,false);
     }
+    await connection.commit();
     res.json({ id, kind: "standard", isActive: active });
   } catch (error) {
+    if (connection) await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Could not update habit visibility." });
-  }
+  } finally { if (connection) connection.release(); }
 });
 
 app.get("/api/custom-habits", requireHabitSession, async (req, res) => {
@@ -346,14 +369,20 @@ app.post("/api/custom-habits", requireHabitSession, async (req, res) => {
   if (["water", "sleep"].includes(name.toLowerCase())) {
     return res.status(400).json({ message: "Water and sleep are already available." });
   }
+  let connection;
   try {
-    const [result] = await pool.query("INSERT INTO custom_habits (user_id, name, unit) VALUES (?, ?, ?)", [req.session.userId, name, unit]);
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [result] = await connection.query("INSERT INTO custom_habits (user_id, name, unit) VALUES (?, ?, ?)", [req.session.userId, name, unit]);
+    await setSchedule(connection,req.session.userId,'custom',result.insertId,true);
+    await connection.commit();
     res.status(201).json({ id: result.insertId, name, unit });
   } catch (error) {
+    if (connection) await connection.rollback();
     if (error.code === "ER_DUP_ENTRY") return res.status(409).json({ message: "A habit with this name already exists. Restore it from Removed habits if needed." });
     console.error(error);
     res.status(500).json({ message: "Could not create habit." });
-  }
+  } finally { if (connection) connection.release(); }
 });
 
 // Editing a custom habit updates its label/unit, without touching past entries.
@@ -388,17 +417,23 @@ app.patch("/api/custom-habits/:id/visibility", requireHabitSession, async (req, 
   if (!id || typeof active !== "boolean") {
     return res.status(400).json({ message: "Choose a valid habit and visibility status." });
   }
+  let connection;
   try {
-    const [result] = await pool.query(
-      "UPDATE custom_habits SET is_active = ? WHERE id = ? AND user_id = ?",
-      [active, id, req.session.userId]
-    );
-    if (!result.affectedRows) return res.status(404).json({ message: "Habit not found." });
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [before] = await connection.query("SELECT is_active FROM custom_habits WHERE id=? AND user_id=? FOR UPDATE",[id,req.session.userId]);
+    if (!before.length) { await connection.rollback(); return res.status(404).json({ message: "Habit not found." }); }
+    if (Boolean(before[0].is_active) !== active) {
+      await connection.query("UPDATE custom_habits SET is_active=? WHERE id=? AND user_id=?",[active,id,req.session.userId]);
+      await setSchedule(connection,req.session.userId,'custom',id,active);
+    }
+    await connection.commit();
     res.json({ id, kind: "custom", isActive: active });
   } catch (error) {
+    if (connection) await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Could not update habit visibility." });
-  }
+  } finally { if (connection) connection.release(); }
 });
 
 app.put("/api/custom-habits/:id/entries", requireHabitSession, async (req, res) => {

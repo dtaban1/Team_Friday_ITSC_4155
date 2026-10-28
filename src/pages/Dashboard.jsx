@@ -560,6 +560,7 @@ function Dashboard() {
             Progress
           </a>
           <Link className="dashboard-nav-link" to="/habits/manage">Manage habits</Link>
+          <Link className="dashboard-nav-link" to="/habits/history">Habit History</Link>
           <button
             className="dashboard-logout"
             type="button"
@@ -853,6 +854,12 @@ function Dashboard() {
             </div>
 
             )}
+
+            <div className="dashboard-calendar-link-row">
+              <Link className="dashboard-calendar-link" to="/habits/history">
+                View Habit History Calendar →
+              </Link>
+            </div>
 
             <div className="dashboard-history-section">
               <div className="dashboard-subheading-row">
