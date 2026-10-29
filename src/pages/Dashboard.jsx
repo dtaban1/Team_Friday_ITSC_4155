@@ -576,7 +576,7 @@ function Dashboard() {
         <div className="dashboard-welcome-row">
           <div>
             <span className="dashboard-kicker">Your personal dashboard</span>
-            <h1>Welcome back, {user.email}!</h1>
+               <h1>Welcome back, {user.firstName || user.email}!</h1>
             <p>
               Manage your habits and keep an eye on your tasks, goals, events,
               and progress from one place.
