@@ -186,6 +186,7 @@ function Dashboard() {
   const [tasks, setTasks] = useState([]);
   const [goals, setGoals] = useState([]);
   const [events, setEvents] = useState([]);
+  const [pointsBalance, setPointsBalance] = useState(0);
 
   // Keep the dashboard's definition of "today" aligned with the user's local
   // calendar date even if the page stays open across midnight.
@@ -241,7 +242,7 @@ function Dashboard() {
         const currentUser = sessionData.user;
         setUser(currentUser);
 
-        const [habitResponse, typeResponse, customResponse, taskResponse, goalResponse, eventResponse] = await Promise.all([
+        const [habitResponse, typeResponse, customResponse, taskResponse, goalResponse, eventResponse, pointResponse] = await Promise.all([
           fetch(`${API_URL}/api/users/${currentUser.id}/habits`, {
             credentials: "include",
             signal: controller.signal,
@@ -257,9 +258,10 @@ function Dashboard() {
           fetch(`${API_URL}/api/tasks`, { credentials: "include", signal: controller.signal }),
           fetch(`${API_URL}/api/goals`, { credentials: "include", signal: controller.signal }),
           fetch(`${API_URL}/api/events`, { credentials: "include", signal: controller.signal }),
+          fetch(`${API_URL}/api/points`, { credentials: "include", signal: controller.signal }),
         ]);
 
-        if (!habitResponse.ok || !typeResponse.ok || !customResponse.ok || !taskResponse.ok || !goalResponse.ok || !eventResponse.ok) {
+        if (!habitResponse.ok || !typeResponse.ok || !customResponse.ok || !taskResponse.ok || !goalResponse.ok || !eventResponse.ok || !pointResponse.ok) {
           throw new Error("Some dashboard information could not be loaded.");
         }
 
@@ -274,6 +276,8 @@ function Dashboard() {
         setTasks(await taskResponse.json());
         setGoals(await goalResponse.json());
         setEvents(await eventResponse.json());
+        const pointData = await pointResponse.json();
+        setPointsBalance(Number(pointData.balance || 0));
         
 
       } catch (loadError) {
@@ -453,6 +457,11 @@ function Dashboard() {
       ]);
 
       await loadHabitEntries(user.id);
+      const pointResponse = await fetch(`${API_URL}/api/points`, { credentials: "include" });
+      if (pointResponse.ok) {
+        const pointData = await pointResponse.json();
+        setPointsBalance(Number(pointData.balance || 0));
+      }
       setHabitMessage(`Habits saved for ${formatShortDate(selectedDate)}.`);
     } catch (saveError) {
       setHabitMessage(saveError.message || "Could not save habits.");
@@ -509,6 +518,9 @@ function Dashboard() {
       return;
     }
     setter((current) => current.map((entry) => entry.id === item.id ? { ...entry, completed } : entry));
+    if (typeof data.pointsBalance === "number") {
+      setPointsBalance(data.pointsBalance);
+    }
   };
 
   const deletePlanningItem = async (endpoint, id, setter) => {
@@ -522,6 +534,9 @@ function Dashboard() {
       return;
     }
     setter((current) => current.filter((entry) => entry.id !== id));
+    if (typeof data.pointsBalance === "number") {
+      setPointsBalance(data.pointsBalance);
+    }
   };
 
   if (isLoading) {
@@ -660,6 +675,14 @@ function Dashboard() {
         </article>
 
         <section className="dashboard-stats" aria-label="Progress summary">
+          <article className="dashboard-stat-card dashboard-points-card">
+            <span className="dashboard-stat-icon points" aria-hidden="true">★</span>
+            <div>
+              <strong>{pointsBalance}</strong>
+              <span>points earned</span>
+            </div>
+          </article>
+
           <article className="dashboard-stat-card">
             <span className="dashboard-stat-icon" aria-hidden="true">✓</span>
             <div>

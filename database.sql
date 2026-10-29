@@ -109,3 +109,31 @@ CREATE TABLE IF NOT EXISTS events (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   INDEX idx_events_user_date (user_id, event_date, event_time)
 );
+
+-- Gamification: each eligible completion creates one server-side completion record.
+CREATE TABLE IF NOT EXISTS completions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  activity_type ENUM('task', 'habit', 'custom_habit') NOT NULL,
+  activity_id BIGINT UNSIGNED NOT NULL,
+  completion_date DATE NOT NULL,
+  completed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reversed_at TIMESTAMP NULL DEFAULT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_completions_user_activity (user_id, activity_type, activity_id),
+  INDEX idx_completions_user_date (user_id, completion_date)
+);
+
+CREATE TABLE IF NOT EXISTS point_transactions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  completion_id BIGINT UNSIGNED NOT NULL,
+  transaction_type ENUM('award', 'reversal') NOT NULL,
+  points INT NOT NULL,
+  reason VARCHAR(120) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (completion_id) REFERENCES completions(id) ON DELETE RESTRICT,
+  UNIQUE (completion_id, transaction_type),
+  INDEX idx_point_transactions_user (user_id, id)
+);

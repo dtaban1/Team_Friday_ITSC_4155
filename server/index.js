@@ -5,9 +5,6 @@ const session = require("express-session");
 require("dotenv").config();
 
 const pool = require("./db");
-const { HABIT_GROUPS, findHabitGroup, validateSelectedHabits, addHabitsFromGroup } = require("./habitGroups");
-
-const { setSchedule, getHistory } = require("./habitHistory");
 
 const app = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -72,6 +69,102 @@ async function userExists(userId) {
   return rows.length > 0;
 }
 
+// Server-owned point rules. The browser never submits a point total.
+const POINT_RULES = Object.freeze({
+  task: 10,
+  habit: 5,
+  custom_habit: 5,
+});
+
+async function getPointBalance(db, userId) {
+  const [rows] = await db.query(
+    `SELECT COALESCE(SUM(points), 0) AS balance
+     FROM point_transactions
+     WHERE user_id = ?`,
+    [userId]
+  );
+
+  return Math.max(0, Number(rows[0]?.balance || 0));
+}
+
+async function awardCompletion(db, { userId, activityType, activityId, completionDate }) {
+  const points = POINT_RULES[activityType];
+  if (!points) return { pointsChange: 0, pointsBalance: await getPointBalance(db, userId) };
+
+  const [completion] = await db.query(
+    `INSERT INTO completions
+       (user_id, activity_type, activity_id, completion_date)
+     VALUES (?, ?, ?, ?)`,
+    [userId, activityType, activityId, completionDate]
+  );
+
+  await db.query(
+    `INSERT INTO point_transactions
+       (user_id, completion_id, transaction_type, points, reason)
+     VALUES (?, ?, 'award', ?, ?)`,
+    [userId, completion.insertId, points, `${activityType} completion`]
+  );
+
+  return {
+    completionId: completion.insertId,
+    pointsChange: points,
+    pointsBalance: await getPointBalance(db, userId),
+  };
+}
+
+async function reverseCompletion(db, { userId, activityType, activityId, completionDate = null }) {
+  const points = POINT_RULES[activityType];
+  if (!points) return { pointsChange: 0, pointsBalance: await getPointBalance(db, userId) };
+
+  const params = [userId, activityType, activityId];
+  let dateClause = "";
+  if (completionDate) {
+    dateClause = " AND completion_date = ?";
+    params.push(completionDate);
+  }
+
+  const [rows] = await db.query(
+    `SELECT id
+     FROM completions
+     WHERE user_id = ?
+       AND activity_type = ?
+       AND activity_id = ?
+       ${dateClause}
+       AND reversed_at IS NULL
+     ORDER BY id DESC
+     LIMIT 1
+     FOR UPDATE`,
+    params
+  );
+
+  if (!rows.length) {
+    return { pointsChange: 0, pointsBalance: await getPointBalance(db, userId) };
+  }
+
+  const balance = await getPointBalance(db, userId);
+  if (balance < points) {
+    throw new Error("Point balance is inconsistent and cannot be reversed safely.");
+  }
+
+  const completionId = rows[0].id;
+  await db.query(
+    "UPDATE completions SET reversed_at = NOW() WHERE id = ? AND reversed_at IS NULL",
+    [completionId]
+  );
+  await db.query(
+    `INSERT INTO point_transactions
+       (user_id, completion_id, transaction_type, points, reason)
+     VALUES (?, ?, 'reversal', ?, ?)`,
+    [userId, completionId, -points, `${activityType} completion reversed`]
+  );
+
+  return {
+    completionId,
+    pointsChange: -points,
+    pointsBalance: await getPointBalance(db, userId),
+  };
+}
+
 // HEALTH CHECK
 app.get("/api/health", async (_req, res) => {
   try {
@@ -123,10 +216,6 @@ app.post("/api/signup", async (req, res) => {
        VALUES (?, ?)`,
       [email, passwordHash]
     );
-
-    // Every default habit is scheduled starting on account creation.
-    await pool.query(`INSERT INTO habit_schedule_periods (user_id, habit_kind, habit_id, start_date)
-      SELECT ?, 'standard', id, CURDATE() FROM habit_types`, [result.insertId]);
 
     res.status(201).json({
       message: "Account created successfully",
@@ -241,15 +330,6 @@ function requireHabitSession(req, res, next) {
   next();
 }
 
-// Monthly history always uses the logged-in account; no user id accepted from the client.
-app.get("/api/habit-history", requireHabitSession, async (req, res) => {
-  const month = String(req.query.month || "");
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || Number(month.slice(0,4)) < 1000)
-    return res.status(400).json({ message: "Provide a valid month (YYYY-MM)." });
-  try { res.json(await getHistory(req.session.userId, month)); }
-  catch (error) { console.error(error); res.status(500).json({ message: "Could not load habit history. Run the history migration first." }); }
-});
-
 // All habits, including removed ones, for the authenticated user's management page.
 app.get("/api/habit-management", requireHabitSession, async (req, res) => {
   try {
@@ -277,49 +357,6 @@ app.get("/api/habit-management", requireHabitSession, async (req, res) => {
   }
 });
 
-// Preset groups are available to every logged-in user. The catalog itself is read-only.
-app.get("/api/habit-groups", requireHabitSession, (_req, res) => {
-  res.json(HABIT_GROUPS);
-});
-
-// Add a user-selected subset atomically. Existing habits are skipped rather than duplicated;
-// previously removed habits are restored so that saved entries stay intact.
-app.post("/api/habit-groups/:groupId", requireHabitSession, async (req, res) => {
-  const group = findHabitGroup(req.params.groupId);
-  if (!group) return res.status(404).json({ message: "Habit group not found." });
-
-  let selected;
-  try {
-    selected = validateSelectedHabits(group, req.body?.habitIds);
-  } catch (error) {
-    return res.status(400).json({ message: error.message });
-  }
-
-  let connection;
-  try {
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
-    const result = await addHabitsFromGroup(connection, req.session.userId, selected);
-    await connection.commit();
-
-    const count = result.added.length + result.restored.length;
-    const message = count === 0
-      ? `You already track all selected habits from “${group.name}”. No duplicates were added.`
-      : `“${group.name}” added: ${result.added.length} new, ${result.restored.length} restored` +
-        (result.skipped.length ? `, ${result.skipped.length} already tracked.` : ".");
-
-    res.json({ groupId: group.id, ...result, message, alreadyAdded: count === 0 });
-  } catch (error) {
-    if (connection) {
-      try { await connection.rollback(); } catch (rollbackError) { console.error(rollbackError); }
-    }
-    console.error(error);
-    res.status(500).json({ message: "Could not add this group. Please try again." });
-  } finally {
-    if (connection) connection.release();
-  }
-});
-
 // A hidden built-in habit remains in the global habit catalog and in the user's history.
 app.patch("/api/habit-management/standard/:id/visibility", requireHabitSession, async (req, res) => {
   const id = parseUserId(req.params.id);
@@ -327,27 +364,19 @@ app.patch("/api/habit-management/standard/:id/visibility", requireHabitSession, 
   if (!id || typeof active !== "boolean") {
     return res.status(400).json({ message: "Choose a valid habit and visibility status." });
   }
-  let connection;
   try {
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
-    const [types] = await connection.query("SELECT id FROM habit_types WHERE id = ?", [id]);
-    if (!types.length) { await connection.rollback(); return res.status(404).json({ message: "Habit not found." }); }
-    const [hidden] = await connection.query("SELECT 1 FROM user_hidden_habit_types WHERE user_id=? AND habit_type_id=?", [req.session.userId,id]);
-    if (active && hidden.length) {
-      await connection.query("DELETE FROM user_hidden_habit_types WHERE user_id=? AND habit_type_id=?", [req.session.userId,id]);
-      await setSchedule(connection,req.session.userId,'standard',id,true);
-    } else if (!active && !hidden.length) {
-      await connection.query("INSERT INTO user_hidden_habit_types (user_id,habit_type_id) VALUES (?,?)", [req.session.userId,id]);
-      await setSchedule(connection,req.session.userId,'standard',id,false);
+    const [types] = await pool.query("SELECT id FROM habit_types WHERE id = ?", [id]);
+    if (!types.length) return res.status(404).json({ message: "Habit not found." });
+    if (active) {
+      await pool.query("DELETE FROM user_hidden_habit_types WHERE user_id = ? AND habit_type_id = ?", [req.session.userId, id]);
+    } else {
+      await pool.query("INSERT IGNORE INTO user_hidden_habit_types (user_id, habit_type_id) VALUES (?, ?)", [req.session.userId, id]);
     }
-    await connection.commit();
     res.json({ id, kind: "standard", isActive: active });
   } catch (error) {
-    if (connection) await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Could not update habit visibility." });
-  } finally { if (connection) connection.release(); }
+  }
 });
 
 app.get("/api/custom-habits", requireHabitSession, async (req, res) => {
@@ -369,20 +398,14 @@ app.post("/api/custom-habits", requireHabitSession, async (req, res) => {
   if (["water", "sleep"].includes(name.toLowerCase())) {
     return res.status(400).json({ message: "Water and sleep are already available." });
   }
-  let connection;
   try {
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
-    const [result] = await connection.query("INSERT INTO custom_habits (user_id, name, unit) VALUES (?, ?, ?)", [req.session.userId, name, unit]);
-    await setSchedule(connection,req.session.userId,'custom',result.insertId,true);
-    await connection.commit();
+    const [result] = await pool.query("INSERT INTO custom_habits (user_id, name, unit) VALUES (?, ?, ?)", [req.session.userId, name, unit]);
     res.status(201).json({ id: result.insertId, name, unit });
   } catch (error) {
-    if (connection) await connection.rollback();
     if (error.code === "ER_DUP_ENTRY") return res.status(409).json({ message: "A habit with this name already exists. Restore it from Removed habits if needed." });
     console.error(error);
     res.status(500).json({ message: "Could not create habit." });
-  } finally { if (connection) connection.release(); }
+  }
 });
 
 // Editing a custom habit updates its label/unit, without touching past entries.
@@ -417,23 +440,17 @@ app.patch("/api/custom-habits/:id/visibility", requireHabitSession, async (req, 
   if (!id || typeof active !== "boolean") {
     return res.status(400).json({ message: "Choose a valid habit and visibility status." });
   }
-  let connection;
   try {
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
-    const [before] = await connection.query("SELECT is_active FROM custom_habits WHERE id=? AND user_id=? FOR UPDATE",[id,req.session.userId]);
-    if (!before.length) { await connection.rollback(); return res.status(404).json({ message: "Habit not found." }); }
-    if (Boolean(before[0].is_active) !== active) {
-      await connection.query("UPDATE custom_habits SET is_active=? WHERE id=? AND user_id=?",[active,id,req.session.userId]);
-      await setSchedule(connection,req.session.userId,'custom',id,active);
-    }
-    await connection.commit();
+    const [result] = await pool.query(
+      "UPDATE custom_habits SET is_active = ? WHERE id = ? AND user_id = ?",
+      [active, id, req.session.userId]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: "Habit not found." });
     res.json({ id, kind: "custom", isActive: active });
   } catch (error) {
-    if (connection) await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Could not update habit visibility." });
-  } finally { if (connection) connection.release(); }
+  }
 });
 
 app.put("/api/custom-habits/:id/entries", requireHabitSession, async (req, res) => {
@@ -445,15 +462,44 @@ app.put("/api/custom-habits/:id/entries", requireHabitSession, async (req, res) 
   if (!id || !validDate || typeof value !== "number" || !Number.isFinite(number) || number < 0 || number > 99999999.99) {
     return res.status(400).json({ message: "Choose a valid date and a non-negative value up to 99999999.99." });
   }
+  const connection = await pool.getConnection();
   try {
-    const [rows] = await pool.query("SELECT id FROM custom_habits WHERE id = ? AND user_id = ? AND is_active = 1", [id, req.session.userId]);
-    if (!rows.length) return res.status(404).json({ message: "Habit not found." });
-    await pool.query(`INSERT INTO custom_habit_entries (custom_habit_id, entry_date, value) VALUES (?, ?, ?)
+    await connection.beginTransaction();
+    const [rows] = await connection.query("SELECT id FROM custom_habits WHERE id = ? AND user_id = ? AND is_active = 1", [id, req.session.userId]);
+    if (!rows.length) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Habit not found." });
+    }
+
+    const [existing] = await connection.query(
+      "SELECT value FROM custom_habit_entries WHERE custom_habit_id = ? AND entry_date = ? FOR UPDATE",
+      [id, entryDate]
+    );
+    const wasCompleted = existing.length > 0 && Number(existing[0].value) > 0;
+    const isCompleted = number > 0;
+
+    await connection.query(`INSERT INTO custom_habit_entries (custom_habit_id, entry_date, value) VALUES (?, ?, ?)
       ON DUPLICATE KEY UPDATE value = VALUES(value)`, [id, entryDate, number]);
-    res.json({ message: "Habit entry saved." });
+
+    let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, req.session.userId) };
+    if (!wasCompleted && isCompleted) {
+      pointResult = await awardCompletion(connection, {
+        userId: req.session.userId, activityType: "custom_habit", activityId: id, completionDate: entryDate,
+      });
+    } else if (wasCompleted && !isCompleted) {
+      pointResult = await reverseCompletion(connection, {
+        userId: req.session.userId, activityType: "custom_habit", activityId: id, completionDate: entryDate,
+      });
+    }
+
+    await connection.commit();
+    res.json({ message: "Habit entry saved.", value: number, ...pointResult });
   } catch (error) {
+    await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Could not save habit entry." });
+  } finally {
+    connection.release();
   }
 });
 
@@ -612,42 +658,57 @@ app.put(
       }
 
       const habit = habitRows[0];
-      const [hidden] = await pool.query(
-        "SELECT 1 FROM user_hidden_habit_types WHERE user_id = ? AND habit_type_id = ?",
-        [userId, habit.id]
-      );
-      if (hidden.length) return res.status(409).json({ message: "Restore this habit before logging new entries." });
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [hidden] = await connection.query(
+          "SELECT 1 FROM user_hidden_habit_types WHERE user_id = ? AND habit_type_id = ?",
+          [userId, habit.id]
+        );
+        if (hidden.length) {
+          await connection.rollback();
+          return res.status(409).json({ message: "Restore this habit before logging new entries." });
+        }
 
-      await pool.query(
-        `INSERT INTO habit_entries
-           (
-             user_id,
-             habit_type_id,
-             entry_date,
-             value,
-             notes
-           )
-         VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           value = VALUES(value),
-           notes = VALUES(notes)`,
-        [
-          userId,
-          habit.id,
-          entryDate,
-          numericValue,
-          notes,
-        ]
-      );
+        const [existing] = await connection.query(
+          "SELECT value FROM habit_entries WHERE user_id = ? AND habit_type_id = ? AND entry_date = ? FOR UPDATE",
+          [userId, habit.id, entryDate]
+        );
+        const wasCompleted = existing.length > 0 && Number(existing[0].value) > 0;
+        const isCompleted = numericValue > 0;
 
-      res.json({
-        userId,
-        habit: habit.name,
-        unit: habit.unit,
-        entryDate,
-        value: numericValue,
-        notes,
-      });
+        await connection.query(
+          `INSERT INTO habit_entries
+             (user_id, habit_type_id, entry_date, value, notes)
+           VALUES (?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             value = VALUES(value),
+             notes = VALUES(notes)`,
+          [userId, habit.id, entryDate, numericValue, notes]
+        );
+
+        let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, userId) };
+        if (!wasCompleted && isCompleted) {
+          pointResult = await awardCompletion(connection, {
+            userId, activityType: "habit", activityId: habit.id, completionDate: entryDate,
+          });
+        } else if (wasCompleted && !isCompleted) {
+          pointResult = await reverseCompletion(connection, {
+            userId, activityType: "habit", activityId: habit.id, completionDate: entryDate,
+          });
+        }
+
+        await connection.commit();
+        res.json({
+          userId, habit: habit.name, unit: habit.unit, entryDate,
+          value: numericValue, notes, ...pointResult,
+        });
+      } catch (transactionError) {
+        await connection.rollback();
+        throw transactionError;
+      } finally {
+        connection.release();
+      }
     } catch (error) {
       console.error(error);
 
@@ -679,27 +740,44 @@ app.delete(
       });
     }
 
+    const connection = await pool.getConnection();
     try {
-      const [result] = await pool.query(
-        `DELETE he
+      await connection.beginTransaction();
+      const [entries] = await connection.query(
+        `SELECT he.id, he.value, he.habit_type_id AS habitTypeId
          FROM habit_entries he
-         JOIN habit_types ht
-           ON ht.id = he.habit_type_id
-         WHERE he.user_id = ?
-           AND ht.name = ?
-           AND he.entry_date = ?`,
+         JOIN habit_types ht ON ht.id = he.habit_type_id
+         WHERE he.user_id = ? AND ht.name = ? AND he.entry_date = ?
+         FOR UPDATE`,
         [userId, habitName, entryDate]
       );
 
-      res.json({
-        deleted: result.affectedRows > 0,
-      });
+      let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, userId) };
+      if (entries.length && Number(entries[0].value) > 0) {
+        pointResult = await reverseCompletion(connection, {
+          userId, activityType: "habit", activityId: entries[0].habitTypeId, completionDate: entryDate,
+        });
+      }
+
+      const [result] = await connection.query(
+        `DELETE he
+         FROM habit_entries he
+         JOIN habit_types ht ON ht.id = he.habit_type_id
+         WHERE he.user_id = ? AND ht.name = ? AND he.entry_date = ?`,
+        [userId, habitName, entryDate]
+      );
+
+      await connection.commit();
+      res.json({ deleted: result.affectedRows > 0, ...pointResult });
     } catch (error) {
+      await connection.rollback();
       console.error(error);
 
       res.status(500).json({
         message: "Could not delete habit entry",
       });
+    } finally {
+      connection.release();
     }
   }
 );
@@ -806,6 +884,29 @@ function cleanTitle(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+// POINT BALANCE
+app.get("/api/points", requireSession, async (req, res) => {
+  try {
+    const balance = await getPointBalance(pool, req.session.userId);
+    const [transactions] = await pool.query(
+      `SELECT pt.id, pt.completion_id AS completionId, pt.transaction_type AS transactionType,
+              pt.points, pt.reason, pt.created_at AS createdAt,
+              c.activity_type AS activityType, c.activity_id AS activityId,
+              DATE_FORMAT(c.completion_date, '%Y-%m-%d') AS completionDate
+       FROM point_transactions pt
+       JOIN completions c ON c.id = pt.completion_id
+       WHERE pt.user_id = ?
+       ORDER BY pt.id DESC
+       LIMIT 10`,
+      [req.session.userId]
+    );
+    res.json({ balance, transactions });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not load point balance." });
+  }
+});
+
 // TASKS
 app.get("/api/tasks", requireSession, async (req, res) => {
   try {
@@ -851,16 +952,47 @@ app.patch("/api/tasks/:id", requireSession, async (req, res) => {
     return res.status(400).json({ message: "Choose a valid task and completion status." });
   }
 
+  const connection = await pool.getConnection();
   try {
-    const [result] = await pool.query(
-      "UPDATE tasks SET completed = ? WHERE id = ? AND user_id = ?",
-      [req.body.completed, id, req.session.userId]
+    await connection.beginTransaction();
+    const [tasks] = await connection.query(
+      "SELECT id, completed FROM tasks WHERE id = ? AND user_id = ? FOR UPDATE",
+      [id, req.session.userId]
     );
-    if (!result.affectedRows) return res.status(404).json({ message: "Task not found." });
-    res.json({ id, completed: req.body.completed });
+    if (!tasks.length) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Task not found." });
+    }
+
+    const wasCompleted = Boolean(tasks[0].completed);
+    const completed = req.body.completed;
+    let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, req.session.userId) };
+
+    if (wasCompleted !== completed) {
+      await connection.query(
+        "UPDATE tasks SET completed = ? WHERE id = ? AND user_id = ?",
+        [completed, id, req.session.userId]
+      );
+
+      if (completed) {
+        pointResult = await awardCompletion(connection, {
+          userId: req.session.userId, activityType: "task", activityId: id, completionDate: new Date().toISOString().slice(0, 10),
+        });
+      } else {
+        pointResult = await reverseCompletion(connection, {
+          userId: req.session.userId, activityType: "task", activityId: id,
+        });
+      }
+    }
+
+    await connection.commit();
+    res.json({ id, completed, ...pointResult });
   } catch (error) {
+    await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Could not update task." });
+  } finally {
+    connection.release();
   }
 });
 
@@ -868,16 +1000,34 @@ app.delete("/api/tasks/:id", requireSession, async (req, res) => {
   const id = parseUserId(req.params.id);
   if (!id) return res.status(400).json({ message: "Invalid task id." });
 
+  const connection = await pool.getConnection();
   try {
-    const [result] = await pool.query(
-      "DELETE FROM tasks WHERE id = ? AND user_id = ?",
+    await connection.beginTransaction();
+    const [tasks] = await connection.query(
+      "SELECT completed FROM tasks WHERE id = ? AND user_id = ? FOR UPDATE",
       [id, req.session.userId]
     );
-    if (!result.affectedRows) return res.status(404).json({ message: "Task not found." });
-    res.json({ deleted: true });
+    if (!tasks.length) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Task not found." });
+    }
+
+    let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, req.session.userId) };
+    if (Boolean(tasks[0].completed)) {
+      pointResult = await reverseCompletion(connection, {
+        userId: req.session.userId, activityType: "task", activityId: id,
+      });
+    }
+
+    await connection.query("DELETE FROM tasks WHERE id = ? AND user_id = ?", [id, req.session.userId]);
+    await connection.commit();
+    res.json({ deleted: true, ...pointResult });
   } catch (error) {
+    await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Could not delete task." });
+  } finally {
+    connection.release();
   }
 });
 

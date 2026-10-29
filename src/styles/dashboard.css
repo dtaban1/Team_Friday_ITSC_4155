@@ -1004,3 +1004,13 @@ html {
 }
 .dashboard-calendar-link:hover { background: #0a5ea9; }
 .dashboard-calendar-link:focus-visible { outline: 3px solid #5db5f4; outline-offset: 3px; }
+
+/* Gamification point balance */
+.dashboard-stat-icon.points {
+  color: #9a6800;
+  background: #fff4cf;
+}
+.dashboard-points-card strong {
+  font-variant-numeric: tabular-nums;
+}
+
