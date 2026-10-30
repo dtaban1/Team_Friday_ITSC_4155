@@ -186,6 +186,9 @@ function Dashboard() {
   const [tasks, setTasks] = useState([]);
   const [goals, setGoals] = useState([]);
   const [events, setEvents] = useState([]);
+  const [pointsBalance, setPointsBalance] = useState(0);
+  const [achievements, setAchievements] = useState([]);
+  const [achievementNotice, setAchievementNotice] = useState("");
 
   // Keep the dashboard's definition of "today" aligned with the user's local
   // calendar date even if the page stays open across midnight.
@@ -241,7 +244,7 @@ function Dashboard() {
         const currentUser = sessionData.user;
         setUser(currentUser);
 
-        const [habitResponse, typeResponse, customResponse, taskResponse, goalResponse, eventResponse] = await Promise.all([
+        const [habitResponse, typeResponse, customResponse, taskResponse, goalResponse, eventResponse, pointResponse, achievementResponse] = await Promise.all([
           fetch(`${API_URL}/api/users/${currentUser.id}/habits`, {
             credentials: "include",
             signal: controller.signal,
@@ -257,9 +260,11 @@ function Dashboard() {
           fetch(`${API_URL}/api/tasks`, { credentials: "include", signal: controller.signal }),
           fetch(`${API_URL}/api/goals`, { credentials: "include", signal: controller.signal }),
           fetch(`${API_URL}/api/events`, { credentials: "include", signal: controller.signal }),
+          fetch(`${API_URL}/api/points`, { credentials: "include", signal: controller.signal }),
+          fetch(`${API_URL}/api/achievements`, { credentials: "include", signal: controller.signal }),
         ]);
 
-        if (!habitResponse.ok || !typeResponse.ok || !customResponse.ok || !taskResponse.ok || !goalResponse.ok || !eventResponse.ok) {
+        if (!habitResponse.ok || !typeResponse.ok || !customResponse.ok || !taskResponse.ok || !goalResponse.ok || !eventResponse.ok || !pointResponse.ok || !achievementResponse.ok) {
           throw new Error("Some dashboard information could not be loaded.");
         }
 
@@ -274,6 +279,10 @@ function Dashboard() {
         setTasks(await taskResponse.json());
         setGoals(await goalResponse.json());
         setEvents(await eventResponse.json());
+        const pointData = await pointResponse.json();
+        setPointsBalance(Number(pointData.balance || 0));
+        const achievementData = await achievementResponse.json();
+        setAchievements(Array.isArray(achievementData.achievements) ? achievementData.achievements : []);
         
 
       } catch (loadError) {
@@ -420,7 +429,19 @@ function Dashboard() {
       throw new Error(data.message || `Could not save ${habit}.`);
     }
 
-    return true;
+    return data;
+  };
+
+  const refreshAchievements = async (unlocked = []) => {
+    const response = await fetch(`${API_URL}/api/achievements`, { credentials: "include" });
+    if (response.ok) {
+      const data = await response.json();
+      setAchievements(Array.isArray(data.achievements) ? data.achievements : []);
+    }
+
+    if (unlocked.length > 0) {
+      setAchievementNotice(`Achievement unlocked: ${unlocked.map((item) => item.name).join(", ")}!`);
+    }
   };
 
   const handleHabitSubmit = async (event) => {
@@ -438,7 +459,7 @@ function Dashboard() {
     setIsSavingHabits(true);
 
     try {
-      await Promise.all([
+      const habitResults = await Promise.all([
         ...(activeStandardNames.has("water") ? [saveHabit("water", water)] : []),
         ...(activeStandardNames.has("sleep") ? [saveHabit("sleep", sleep)] : []),
         ...customHabits.filter((habit) => customValues[habit.id] !== undefined && customValues[habit.id] !== "")
@@ -449,10 +470,20 @@ function Dashboard() {
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.message || "Could not save habit.");
+            return data;
           }),
       ]);
 
       await loadHabitEntries(user.id);
+      const pointResponse = await fetch(`${API_URL}/api/points`, { credentials: "include" });
+      if (pointResponse.ok) {
+        const pointData = await pointResponse.json();
+        setPointsBalance(Number(pointData.balance || 0));
+      }
+      const unlocked = habitResults.flatMap((result) =>
+        Array.isArray(result?.achievementsUnlocked) ? result.achievementsUnlocked : []
+      );
+      await refreshAchievements(unlocked);
       setHabitMessage(`Habits saved for ${formatShortDate(selectedDate)}.`);
     } catch (saveError) {
       setHabitMessage(saveError.message || "Could not save habits.");
@@ -509,6 +540,14 @@ function Dashboard() {
       return;
     }
     setter((current) => current.map((entry) => entry.id === item.id ? { ...entry, completed } : entry));
+    if (typeof data.pointsBalance === "number") {
+      setPointsBalance(data.pointsBalance);
+    }
+    if (Array.isArray(data.achievementsUnlocked) && data.achievementsUnlocked.length > 0) {
+      await refreshAchievements(data.achievementsUnlocked);
+    } else if (endpoint === "tasks") {
+      await refreshAchievements();
+    }
   };
 
   const deletePlanningItem = async (endpoint, id, setter) => {
@@ -522,6 +561,12 @@ function Dashboard() {
       return;
     }
     setter((current) => current.filter((entry) => entry.id !== id));
+    if (typeof data.pointsBalance === "number") {
+      setPointsBalance(data.pointsBalance);
+    }
+    if (endpoint === "tasks") {
+      await refreshAchievements();
+    }
   };
 
   if (isLoading) {
@@ -557,6 +602,7 @@ function Dashboard() {
           <a className="dashboard-nav-link" href="#goals">Goals</a>
           <a className="dashboard-nav-link" href="#events">Events</a>
           <Link className="dashboard-nav-link" to="/rewards">Rewards</Link>
+          <a className="dashboard-nav-link" href="#achievements">Achievements</a>
           <a className="dashboard-nav-link" href="#progress">
             Progress
           </a>
@@ -593,6 +639,12 @@ function Dashboard() {
         {error && (
           <p className="dashboard-alert" role="alert">
             {error}
+          </p>
+        )}
+
+        {achievementNotice && (
+          <p className="dashboard-achievement-notice" role="status">
+            {achievementNotice}
           </p>
         )}
 
@@ -661,6 +713,14 @@ function Dashboard() {
         </article>
 
         <section className="dashboard-stats" aria-label="Progress summary">
+          <article className="dashboard-stat-card dashboard-points-card">
+            <span className="dashboard-stat-icon points" aria-hidden="true">★</span>
+            <div>
+              <strong>{pointsBalance}</strong>
+              <span>points earned</span>
+            </div>
+          </article>
+
           <article className="dashboard-stat-card">
             <span className="dashboard-stat-icon" aria-hidden="true">✓</span>
             <div>
@@ -704,6 +764,68 @@ function Dashboard() {
         ))}
 
         </section>
+
+        <article className="dashboard-card dashboard-achievements-card" id="achievements">
+          <div className="dashboard-card-heading">
+            <div>
+              <span className="dashboard-card-label">Milestones</span>
+              <h2>Achievements</h2>
+              <p className="dashboard-card-description">
+                Complete activities and earn points to unlock permanent milestones.
+              </p>
+            </div>
+            <strong className="dashboard-achievement-count">
+              {achievements.filter((achievement) => achievement.earned).length}/{achievements.length}
+            </strong>
+          </div>
+
+          {achievements.length === 0 ? (
+            <div className="dashboard-empty-state compact">
+              <span aria-hidden="true">★</span>
+              <div>
+                <strong>No achievement data yet.</strong>
+                <p>Your milestone achievements will appear here.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="dashboard-achievement-grid">
+              {achievements.map((achievement) => (
+                <div
+                  className={`dashboard-achievement ${achievement.earned ? "is-earned" : "is-locked"}`}
+                  key={achievement.code}
+                >
+                  <span className="dashboard-achievement-badge" aria-hidden="true">
+                    {achievement.badge}
+                  </span>
+                  <div className="dashboard-achievement-copy">
+                    <div className="dashboard-achievement-title-row">
+                      <strong>{achievement.name}</strong>
+                      <span>{achievement.earned ? "Unlocked" : "Locked"}</span>
+                    </div>
+                    <p>{achievement.description}</p>
+                    {!achievement.earned && (
+                      <>
+                        <div
+                          className="dashboard-achievement-track"
+                          role="progressbar"
+                          aria-label={`${achievement.name} progress`}
+                          aria-valuemin="0"
+                          aria-valuemax="100"
+                          aria-valuenow={achievement.progressPercent}
+                        >
+                          <div style={{ width: `${achievement.progressPercent}%` }} />
+                        </div>
+                        <small>
+                          {Math.min(achievement.currentValue, achievement.threshold)} / {achievement.threshold}
+                        </small>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </article>
 
         <section className="dashboard-grid" aria-label="Dashboard sections">
           <article
