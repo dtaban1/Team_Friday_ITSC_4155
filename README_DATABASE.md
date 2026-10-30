@@ -260,3 +260,29 @@ API endpoints (session required):
 Run `cd server && npm test` to run catalog/selection/duplicate/restoration tests
 without requiring a live MySQL connection. To use the application itself you still
 need the existing MySQL server running and both frontend/backend dependencies installed.
+
+## Habit History calendar database migration
+
+After running `database.sql` on a new installation, or before running the updated
+server on an existing installation, execute this migration **once**:
+
+```bash
+mysql -u root -p ontrack_db < server/migrate_habit_history.sql
+```
+
+Alternatively, in the MySQL terminal, enter `USE ontrack_db;` and
+`SOURCE server/migrate_habit_history.sql;` from the project root.
+
+This migration preserves existing logs and creates `habit_schedule_periods`,
+tracking activations, removals, and restorations going forward. Existing users'
+active built-in habits are assumed scheduled since account creation. Existing
+custom habits with logs begin at the first known log; otherwise they begin on
+the migration date. Previously removed habits have their logged dates preserved.
+The old schema did not record historical activation/removal dates, so unlogged
+past scheduled days for those habits cannot be reconstructed. New changes are
+tracked precisely from the migration onward.
+
+Visit `/habits/history` from the dashboard after restarting the API server and
+frontend. All habit-history requests use the authenticated session account.
+A saved numeric entry greater than zero counts as completed; zero counts as
+incomplete. Logging and history are stored in MySQL, not browser storage.

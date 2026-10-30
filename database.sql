@@ -4,6 +4,8 @@ USE ontrack_db;
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   email VARCHAR(255) UNIQUE NOT NULL,
+  first_name VARCHAR(50) NULL,
+  last_name VARCHAR(50) NULL,
   password_hash VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -139,3 +141,15 @@ CREATE TABLE IF NOT EXISTS reward_claims (
   FOREIGN KEY (reward_id) REFERENCES rewards(id) ON DELETE CASCADE,
   UNIQUE KEY uq_reward_claim_period (reward_id, period_key)
 );
+CREATE TABLE IF NOT EXISTS habit_schedule_periods (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  habit_kind ENUM('standard', 'custom') NOT NULL,
+  habit_id INT UNSIGNED NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_schedule_user_habit (user_id, habit_kind, habit_id, end_date)
+);
+
+SHOW TABLES LIKE 'habit_schedule_periods';

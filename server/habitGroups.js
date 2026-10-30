@@ -1,3 +1,4 @@
+const { setSchedule } = require("./habitHistory");
 // The server owns the preset catalog: clients send IDs, never arbitrary habit names/units.
 // Reusing a habit name across groups intentionally refers to the same tracked habit.
 const HABIT_GROUPS = [
@@ -151,6 +152,7 @@ async function addHabitsFromGroup(connection, userId, selected) {
         "DELETE FROM user_hidden_habit_types WHERE user_id = ? AND habit_type_id = ?",
         [userId, builtIn.id]
       );
+      if (result.affectedRows) await setSchedule(connection,userId,"standard",builtIn.id,true);
       (result.affectedRows ? restored : skipped).push(habit.name);
       continue;
     }
@@ -164,6 +166,7 @@ async function addHabitsFromGroup(connection, userId, selected) {
         skipped.push(habit.name);
       } else {
         await connection.query("UPDATE custom_habits SET is_active = 1 WHERE id = ? AND user_id = ?", [existing[0].id, userId]);
+        await setSchedule(connection,userId,"custom",existing[0].id,true);
         restored.push(habit.name);
       }
       continue;
@@ -175,6 +178,7 @@ async function addHabitsFromGroup(connection, userId, selected) {
       [userId, habit.name, habit.unit]
     );
     if (result.affectedRows) {
+      await setSchedule(connection,userId,"custom",result.insertId,true);
       added.push(habit.name);
     } else {
       // Another request inserted the same habit while this one was in progress.
@@ -187,6 +191,7 @@ async function addHabitsFromGroup(connection, userId, selected) {
         skipped.push(habit.name);
       } else {
         await connection.query("UPDATE custom_habits SET is_active = 1 WHERE id = ? AND user_id = ?", [race[0].id, userId]);
+        await setSchedule(connection,userId,"custom",race[0].id,true);
         restored.push(habit.name);
       }
     }

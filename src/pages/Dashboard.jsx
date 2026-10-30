@@ -561,6 +561,7 @@ function Dashboard() {
             Progress
           </a>
           <Link className="dashboard-nav-link" to="/habits/manage">Manage habits</Link>
+          <Link className="dashboard-nav-link" to="/habits/history">Habit History</Link>
           <button
             className="dashboard-logout"
             type="button"
@@ -576,7 +577,7 @@ function Dashboard() {
         <div className="dashboard-welcome-row">
           <div>
             <span className="dashboard-kicker">Your personal dashboard</span>
-            <h1>Welcome back, {user.email}!</h1>
+               <h1>Welcome back, {user.firstName || user.email}!</h1>
             <p>
               Manage your habits and keep an eye on your tasks, goals, events,
               and progress from one place.
@@ -854,6 +855,12 @@ function Dashboard() {
             </div>
 
             )}
+
+            <div className="dashboard-calendar-link-row">
+              <Link className="dashboard-calendar-link" to="/habits/history">
+                View Habit History Calendar →
+              </Link>
+            </div>
 
             <div className="dashboard-history-section">
               <div className="dashboard-subheading-row">
