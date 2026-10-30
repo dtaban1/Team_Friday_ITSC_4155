@@ -5,6 +5,7 @@ const session = require("express-session");
 require("dotenv").config();
 
 const pool = require("./db");
+const { createRewardsRouter } = require("./rewards");
 const { HABIT_GROUPS, findHabitGroup, validateSelectedHabits, addHabitsFromGroup } = require("./habitGroups");
 const { setSchedule, getHistory } = require("./habitHistory");
 
@@ -29,6 +30,8 @@ app.use(
   })
 );
 
+// Reward photos are base64 JSON, capped at 2 MB after decoding.
+app.use("/api/rewards", express.json({ limit: "3mb" }));
 app.use(express.json());
 
 app.use(
@@ -47,6 +50,13 @@ app.use(
     },
   })
 );
+
+app.use("/api/rewards", createRewardsRouter(pool));
+app.use("/api/rewards", (error, _req, res, next) => {
+  if (error.type === "entity.too.large") return res.status(413).json({ message: "Choose a photo up to 2 MB." });
+  if (error.type === "entity.parse.failed") return res.status(400).json({ message: "Invalid JSON request." });
+  next(error);
+});
 
 /*
  * Convert the user ID from the URL into a valid number.

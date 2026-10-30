@@ -601,6 +601,7 @@ function Dashboard() {
           <a className="dashboard-nav-link" href="#tasks">Tasks</a>
           <a className="dashboard-nav-link" href="#goals">Goals</a>
           <a className="dashboard-nav-link" href="#events">Events</a>
+          <Link className="dashboard-nav-link" to="/rewards">Rewards</Link>
           <a className="dashboard-nav-link" href="#achievements">Achievements</a>
           <a className="dashboard-nav-link" href="#progress">
             Progress
