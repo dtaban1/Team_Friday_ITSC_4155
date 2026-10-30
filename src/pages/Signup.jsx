@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 function Signup() {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
-    name: "",
+    firstName: "",
+    lastName: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -39,8 +41,11 @@ function Signup() {
     try {
       const response = await fetch("http://localhost:5000/api/signup", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          firstName: formData.firstName.trim(),
+          lastName: formData.lastName.trim(),
           email: formData.email,
           password: formData.password,
         }),
@@ -52,6 +57,8 @@ function Signup() {
         setError(data.message);
         return;
       }
+
+      navigate("/", {replace: true});
 
       console.log("Signup successful:", data);
     } catch (err) {
@@ -132,21 +139,40 @@ function Signup() {
               onSubmit={handleSubmit}
             >
               <div className="auth-form-group">
-                <label htmlFor="signup-name">
-                  Full name
+               <label htmlFor="signup-first-name">
+                First name
                 </label>
 
-                <input
-                  id="signup-name"
-                  name="name"
-                  type="text"
-                  value={formData.name}
-                  onChange={handleChange}
-                  placeholder="Enter your full name"
-                  autoComplete="name"
-                  required
-                />
+              <input
+                id="signup-first-name"
+                name="firstName"
+                type="text"
+                value={formData.firstName}
+                onChange={handleChange}
+                placeholder="Enter your first name"
+                autoComplete="given-name"
+                maxLength={50}
+                required
+              />
               </div>
+
+<div className="auth-form-group">
+  <label htmlFor="signup-last-name">
+    Last name
+  </label>
+
+  <input
+    id="signup-last-name"
+    name="lastName"
+    type="text"
+    value={formData.lastName}
+    onChange={handleChange}
+    placeholder="Enter your last name"
+    autoComplete="family-name"
+    maxLength={50}
+    required
+  />
+</div>
 
               <div className="auth-form-group">
                 <label htmlFor="signup-email">

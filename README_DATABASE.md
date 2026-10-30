@@ -6,6 +6,9 @@
 
 # Database Setup Guide (Local MySQL)
 
+For the personal rewards feature (Issue #44), existing databases also need
+`server/migrate_rewards.sql`. See [Rewards setup and claim rules](README_REWARDS.md).
+
 This project uses a local MySQL database, `ontrack_db`, for both user accounts and habit tracking.
 
 Each teammate runs their **own MySQL server locally** — we do not share one central database yet.
