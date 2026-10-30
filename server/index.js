@@ -6,7 +6,6 @@ require("dotenv").config();
 
 const pool = require("./db");
 const { HABIT_GROUPS, findHabitGroup, validateSelectedHabits, addHabitsFromGroup } = require("./habitGroups");
-
 const { setSchedule, getHistory } = require("./habitHistory");
 
 const app = express();
@@ -52,6 +51,7 @@ app.use(
 /*
  * Convert the user ID from the URL into a valid number.
  */
+
 function parseUserId(rawUserId) {
   const userId = Number(rawUserId);
 
@@ -63,6 +63,7 @@ function parseUserId(rawUserId) {
 /*
  * Check whether a user exists in the database.
  */
+
 async function userExists(userId) {
   const [rows] = await pool.query(
     "SELECT id FROM users WHERE id = ? LIMIT 1",
@@ -70,6 +71,197 @@ async function userExists(userId) {
   );
 
   return rows.length > 0;
+}
+
+// Server-owned point rules. The browser never submits a point total.
+const POINT_RULES = Object.freeze({
+  task: 10,
+  habit: 5,
+  custom_habit: 5,
+});
+
+async function getPointBalance(db, userId) {
+  const [rows] = await db.query(
+    `SELECT COALESCE(SUM(points), 0) AS balance
+     FROM point_transactions
+     WHERE user_id = ?`,
+    [userId]
+  );
+
+  return Math.max(0, Number(rows[0]?.balance || 0));
+}
+
+async function getAchievementMetrics(db, userId) {
+  const balance = await getPointBalance(db, userId);
+  const [rows] = await db.query(
+    `SELECT
+       COUNT(*) AS totalCompletions,
+       SUM(CASE WHEN activity_type = 'task' THEN 1 ELSE 0 END) AS taskCompletions,
+       SUM(CASE WHEN activity_type IN ('habit', 'custom_habit') THEN 1 ELSE 0 END) AS habitCompletions
+     FROM completions
+     WHERE user_id = ? AND reversed_at IS NULL`,
+    [userId]
+  );
+
+  return {
+    points: balance,
+    total_completions: Number(rows[0]?.totalCompletions || 0),
+    task_completions: Number(rows[0]?.taskCompletions || 0),
+    habit_completions: Number(rows[0]?.habitCompletions || 0),
+  };
+}
+
+async function syncAchievements(db, userId, triggerCompletionId = null) {
+  const metrics = await getAchievementMetrics(db, userId);
+  const [definitions] = await db.query(
+    `SELECT id, code, name, description, badge, milestone_type AS milestoneType,
+            threshold, sort_order AS sortOrder
+     FROM achievements
+     ORDER BY sort_order, id`
+  );
+
+  const unlocked = [];
+  for (const achievement of definitions) {
+    const currentValue = Number(metrics[achievement.milestoneType] || 0);
+    if (currentValue < Number(achievement.threshold)) continue;
+
+    const [result] = await db.query(
+      `INSERT IGNORE INTO user_achievements
+         (user_id, achievement_id, trigger_completion_id)
+       VALUES (?, ?, ?)`,
+      [userId, achievement.id, triggerCompletionId]
+    );
+
+    if (result.affectedRows > 0) {
+      unlocked.push({
+        id: achievement.id,
+        code: achievement.code,
+        name: achievement.name,
+        description: achievement.description,
+        badge: achievement.badge,
+        milestoneType: achievement.milestoneType,
+        threshold: Number(achievement.threshold),
+      });
+    }
+  }
+
+  return unlocked;
+}
+
+async function getAchievementState(db, userId) {
+  await syncAchievements(db, userId);
+  const metrics = await getAchievementMetrics(db, userId);
+  const [rows] = await db.query(
+    `SELECT a.id, a.code, a.name, a.description, a.badge,
+            a.milestone_type AS milestoneType, a.threshold,
+            ua.earned_at AS earnedAt
+     FROM achievements a
+     LEFT JOIN user_achievements ua
+       ON ua.achievement_id = a.id AND ua.user_id = ?
+     ORDER BY a.sort_order, a.id`,
+    [userId]
+  );
+
+  return rows.map((achievement) => {
+    const currentValue = Number(metrics[achievement.milestoneType] || 0);
+    const threshold = Number(achievement.threshold);
+    return {
+      id: achievement.id,
+      code: achievement.code,
+      name: achievement.name,
+      description: achievement.description,
+      badge: achievement.badge,
+      milestoneType: achievement.milestoneType,
+      threshold,
+      currentValue,
+      progressPercent: Math.min(100, Math.round((currentValue / threshold) * 100)),
+      earned: Boolean(achievement.earnedAt),
+      earnedAt: achievement.earnedAt,
+    };
+  });
+}
+
+async function awardCompletion(db, { userId, activityType, activityId, completionDate }) {
+  const points = POINT_RULES[activityType];
+  if (!points) return { pointsChange: 0, pointsBalance: await getPointBalance(db, userId), achievementsUnlocked: [] };
+
+  const [completion] = await db.query(
+    `INSERT INTO completions
+       (user_id, activity_type, activity_id, completion_date)
+     VALUES (?, ?, ?, ?)`,
+    [userId, activityType, activityId, completionDate]
+  );
+
+  await db.query(
+    `INSERT INTO point_transactions
+       (user_id, completion_id, transaction_type, points, reason)
+     VALUES (?, ?, 'award', ?, ?)`,
+    [userId, completion.insertId, points, `${activityType} completion`]
+  );
+
+  const pointsBalance = await getPointBalance(db, userId);
+  const achievementsUnlocked = await syncAchievements(db, userId, completion.insertId);
+
+  return {
+    completionId: completion.insertId,
+    pointsChange: points,
+    pointsBalance,
+    achievementsUnlocked,
+  };
+}
+
+async function reverseCompletion(db, { userId, activityType, activityId, completionDate = null }) {
+  const points = POINT_RULES[activityType];
+  if (!points) return { pointsChange: 0, pointsBalance: await getPointBalance(db, userId), achievementsUnlocked: [] };
+
+  const params = [userId, activityType, activityId];
+  let dateClause = "";
+  if (completionDate) {
+    dateClause = " AND completion_date = ?";
+    params.push(completionDate);
+  }
+
+  const [rows] = await db.query(
+    `SELECT id
+     FROM completions
+     WHERE user_id = ?
+       AND activity_type = ?
+       AND activity_id = ?
+       ${dateClause}
+       AND reversed_at IS NULL
+     ORDER BY id DESC
+     LIMIT 1
+     FOR UPDATE`,
+    params
+  );
+
+  if (!rows.length) {
+    return { pointsChange: 0, pointsBalance: await getPointBalance(db, userId), achievementsUnlocked: [] };
+  }
+
+  const balance = await getPointBalance(db, userId);
+  if (balance < points) {
+    throw new Error("Point balance is inconsistent and cannot be reversed safely.");
+  }
+
+  const completionId = rows[0].id;
+  await db.query(
+    "UPDATE completions SET reversed_at = NOW() WHERE id = ? AND reversed_at IS NULL",
+    [completionId]
+  );
+  await db.query(
+    `INSERT INTO point_transactions
+       (user_id, completion_id, transaction_type, points, reason)
+     VALUES (?, ?, 'reversal', ?, ?)`,
+    [userId, completionId, -points, `${activityType} completion reversed`]
+  );
+
+  return {
+    completionId,
+    pointsChange: -points,
+    pointsBalance: await getPointBalance(db, userId),
+    achievementsUnlocked: [],
+  };
 }
 
 // HEALTH CHECK
@@ -126,7 +318,6 @@ app.post("/api/signup", async (req, res) => {
        VALUES (?, ?, ?, ?)`,
       [email, first, last, passwordHash]
     );
-
     // Every default habit is scheduled starting on account creation.
     await pool.query(`INSERT INTO habit_schedule_periods (user_id, habit_kind, habit_id, start_date)
       SELECT ?, 'standard', id, CURDATE() FROM habit_types`, [result.insertId]);
@@ -316,27 +507,23 @@ app.get("/api/habit-groups", requireHabitSession, (_req, res) => {
 app.post("/api/habit-groups/:groupId", requireHabitSession, async (req, res) => {
   const group = findHabitGroup(req.params.groupId);
   if (!group) return res.status(404).json({ message: "Habit group not found." });
-
   let selected;
   try {
     selected = validateSelectedHabits(group, req.body?.habitIds);
   } catch (error) {
     return res.status(400).json({ message: error.message });
   }
-
   let connection;
   try {
     connection = await pool.getConnection();
     await connection.beginTransaction();
     const result = await addHabitsFromGroup(connection, req.session.userId, selected);
     await connection.commit();
-
     const count = result.added.length + result.restored.length;
     const message = count === 0
       ? `You already track all selected habits from “${group.name}”. No duplicates were added.`
       : `“${group.name}” added: ${result.added.length} new, ${result.restored.length} restored` +
         (result.skipped.length ? `, ${result.skipped.length} already tracked.` : ".");
-
     res.json({ groupId: group.id, ...result, message, alreadyAdded: count === 0 });
   } catch (error) {
     if (connection) {
@@ -474,15 +661,44 @@ app.put("/api/custom-habits/:id/entries", requireHabitSession, async (req, res) 
   if (!id || !validDate || typeof value !== "number" || !Number.isFinite(number) || number < 0 || number > 99999999.99) {
     return res.status(400).json({ message: "Choose a valid date and a non-negative value up to 99999999.99." });
   }
+  const connection = await pool.getConnection();
   try {
-    const [rows] = await pool.query("SELECT id FROM custom_habits WHERE id = ? AND user_id = ? AND is_active = 1", [id, req.session.userId]);
-    if (!rows.length) return res.status(404).json({ message: "Habit not found." });
-    await pool.query(`INSERT INTO custom_habit_entries (custom_habit_id, entry_date, value) VALUES (?, ?, ?)
+    await connection.beginTransaction();
+    const [rows] = await connection.query("SELECT id FROM custom_habits WHERE id = ? AND user_id = ? AND is_active = 1", [id, req.session.userId]);
+    if (!rows.length) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Habit not found." });
+    }
+
+    const [existing] = await connection.query(
+      "SELECT value FROM custom_habit_entries WHERE custom_habit_id = ? AND entry_date = ? FOR UPDATE",
+      [id, entryDate]
+    );
+    const wasCompleted = existing.length > 0 && Number(existing[0].value) > 0;
+    const isCompleted = number > 0;
+
+    await connection.query(`INSERT INTO custom_habit_entries (custom_habit_id, entry_date, value) VALUES (?, ?, ?)
       ON DUPLICATE KEY UPDATE value = VALUES(value)`, [id, entryDate, number]);
-    res.json({ message: "Habit entry saved." });
+
+    let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, req.session.userId) };
+    if (!wasCompleted && isCompleted) {
+      pointResult = await awardCompletion(connection, {
+        userId: req.session.userId, activityType: "custom_habit", activityId: id, completionDate: entryDate,
+      });
+    } else if (wasCompleted && !isCompleted) {
+      pointResult = await reverseCompletion(connection, {
+        userId: req.session.userId, activityType: "custom_habit", activityId: id, completionDate: entryDate,
+      });
+    }
+
+    await connection.commit();
+    res.json({ message: "Habit entry saved.", value: number, ...pointResult });
   } catch (error) {
+    await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Could not save habit entry." });
+  } finally {
+    connection.release();
   }
 });
 
@@ -641,42 +857,57 @@ app.put(
       }
 
       const habit = habitRows[0];
-      const [hidden] = await pool.query(
-        "SELECT 1 FROM user_hidden_habit_types WHERE user_id = ? AND habit_type_id = ?",
-        [userId, habit.id]
-      );
-      if (hidden.length) return res.status(409).json({ message: "Restore this habit before logging new entries." });
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [hidden] = await connection.query(
+          "SELECT 1 FROM user_hidden_habit_types WHERE user_id = ? AND habit_type_id = ?",
+          [userId, habit.id]
+        );
+        if (hidden.length) {
+          await connection.rollback();
+          return res.status(409).json({ message: "Restore this habit before logging new entries." });
+        }
 
-      await pool.query(
-        `INSERT INTO habit_entries
-           (
-             user_id,
-             habit_type_id,
-             entry_date,
-             value,
-             notes
-           )
-         VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           value = VALUES(value),
-           notes = VALUES(notes)`,
-        [
-          userId,
-          habit.id,
-          entryDate,
-          numericValue,
-          notes,
-        ]
-      );
+        const [existing] = await connection.query(
+          "SELECT value FROM habit_entries WHERE user_id = ? AND habit_type_id = ? AND entry_date = ? FOR UPDATE",
+          [userId, habit.id, entryDate]
+        );
+        const wasCompleted = existing.length > 0 && Number(existing[0].value) > 0;
+        const isCompleted = numericValue > 0;
 
-      res.json({
-        userId,
-        habit: habit.name,
-        unit: habit.unit,
-        entryDate,
-        value: numericValue,
-        notes,
-      });
+        await connection.query(
+          `INSERT INTO habit_entries
+             (user_id, habit_type_id, entry_date, value, notes)
+           VALUES (?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             value = VALUES(value),
+             notes = VALUES(notes)`,
+          [userId, habit.id, entryDate, numericValue, notes]
+        );
+
+        let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, userId) };
+        if (!wasCompleted && isCompleted) {
+          pointResult = await awardCompletion(connection, {
+            userId, activityType: "habit", activityId: habit.id, completionDate: entryDate,
+          });
+        } else if (wasCompleted && !isCompleted) {
+          pointResult = await reverseCompletion(connection, {
+            userId, activityType: "habit", activityId: habit.id, completionDate: entryDate,
+          });
+        }
+
+        await connection.commit();
+        res.json({
+          userId, habit: habit.name, unit: habit.unit, entryDate,
+          value: numericValue, notes, ...pointResult,
+        });
+      } catch (transactionError) {
+        await connection.rollback();
+        throw transactionError;
+      } finally {
+        connection.release();
+      }
     } catch (error) {
       console.error(error);
 
@@ -708,27 +939,44 @@ app.delete(
       });
     }
 
+    const connection = await pool.getConnection();
     try {
-      const [result] = await pool.query(
-        `DELETE he
+      await connection.beginTransaction();
+      const [entries] = await connection.query(
+        `SELECT he.id, he.value, he.habit_type_id AS habitTypeId
          FROM habit_entries he
-         JOIN habit_types ht
-           ON ht.id = he.habit_type_id
-         WHERE he.user_id = ?
-           AND ht.name = ?
-           AND he.entry_date = ?`,
+         JOIN habit_types ht ON ht.id = he.habit_type_id
+         WHERE he.user_id = ? AND ht.name = ? AND he.entry_date = ?
+         FOR UPDATE`,
         [userId, habitName, entryDate]
       );
 
-      res.json({
-        deleted: result.affectedRows > 0,
-      });
+      let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, userId) };
+      if (entries.length && Number(entries[0].value) > 0) {
+        pointResult = await reverseCompletion(connection, {
+          userId, activityType: "habit", activityId: entries[0].habitTypeId, completionDate: entryDate,
+        });
+      }
+
+      const [result] = await connection.query(
+        `DELETE he
+         FROM habit_entries he
+         JOIN habit_types ht ON ht.id = he.habit_type_id
+         WHERE he.user_id = ? AND ht.name = ? AND he.entry_date = ?`,
+        [userId, habitName, entryDate]
+      );
+
+      await connection.commit();
+      res.json({ deleted: result.affectedRows > 0, ...pointResult });
     } catch (error) {
+      await connection.rollback();
       console.error(error);
 
       res.status(500).json({
         message: "Could not delete habit entry",
       });
+    } finally {
+      connection.release();
     }
   }
 );
@@ -835,6 +1083,41 @@ function cleanTitle(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+// POINT BALANCE
+app.get("/api/points", requireSession, async (req, res) => {
+  try {
+    const balance = await getPointBalance(pool, req.session.userId);
+    const [transactions] = await pool.query(
+      `SELECT pt.id, pt.completion_id AS completionId, pt.transaction_type AS transactionType,
+              pt.points, pt.reason, pt.created_at AS createdAt,
+              c.activity_type AS activityType, c.activity_id AS activityId,
+              DATE_FORMAT(c.completion_date, '%Y-%m-%d') AS completionDate
+       FROM point_transactions pt
+       JOIN completions c ON c.id = pt.completion_id
+       WHERE pt.user_id = ?
+       ORDER BY pt.id DESC
+       LIMIT 10`,
+      [req.session.userId]
+    );
+    res.json({ balance, transactions });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not load point balance." });
+  }
+});
+
+// MILESTONE ACHIEVEMENTS
+app.get("/api/achievements", requireSession, async (req, res) => {
+  try {
+    const achievements = await getAchievementState(pool, req.session.userId);
+    const earnedCount = achievements.filter((achievement) => achievement.earned).length;
+    res.json({ earnedCount, totalCount: achievements.length, achievements });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not load achievements." });
+  }
+});
+
 // TASKS
 app.get("/api/tasks", requireSession, async (req, res) => {
   try {
@@ -880,16 +1163,47 @@ app.patch("/api/tasks/:id", requireSession, async (req, res) => {
     return res.status(400).json({ message: "Choose a valid task and completion status." });
   }
 
+  const connection = await pool.getConnection();
   try {
-    const [result] = await pool.query(
-      "UPDATE tasks SET completed = ? WHERE id = ? AND user_id = ?",
-      [req.body.completed, id, req.session.userId]
+    await connection.beginTransaction();
+    const [tasks] = await connection.query(
+      "SELECT id, completed FROM tasks WHERE id = ? AND user_id = ? FOR UPDATE",
+      [id, req.session.userId]
     );
-    if (!result.affectedRows) return res.status(404).json({ message: "Task not found." });
-    res.json({ id, completed: req.body.completed });
+    if (!tasks.length) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Task not found." });
+    }
+
+    const wasCompleted = Boolean(tasks[0].completed);
+    const completed = req.body.completed;
+    let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, req.session.userId) };
+
+    if (wasCompleted !== completed) {
+      await connection.query(
+        "UPDATE tasks SET completed = ? WHERE id = ? AND user_id = ?",
+        [completed, id, req.session.userId]
+      );
+
+      if (completed) {
+        pointResult = await awardCompletion(connection, {
+          userId: req.session.userId, activityType: "task", activityId: id, completionDate: new Date().toISOString().slice(0, 10),
+        });
+      } else {
+        pointResult = await reverseCompletion(connection, {
+          userId: req.session.userId, activityType: "task", activityId: id,
+        });
+      }
+    }
+
+    await connection.commit();
+    res.json({ id, completed, ...pointResult });
   } catch (error) {
+    await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Could not update task." });
+  } finally {
+    connection.release();
   }
 });
 
@@ -897,16 +1211,34 @@ app.delete("/api/tasks/:id", requireSession, async (req, res) => {
   const id = parseUserId(req.params.id);
   if (!id) return res.status(400).json({ message: "Invalid task id." });
 
+  const connection = await pool.getConnection();
   try {
-    const [result] = await pool.query(
-      "DELETE FROM tasks WHERE id = ? AND user_id = ?",
+    await connection.beginTransaction();
+    const [tasks] = await connection.query(
+      "SELECT completed FROM tasks WHERE id = ? AND user_id = ? FOR UPDATE",
       [id, req.session.userId]
     );
-    if (!result.affectedRows) return res.status(404).json({ message: "Task not found." });
-    res.json({ deleted: true });
+    if (!tasks.length) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Task not found." });
+    }
+
+    let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, req.session.userId) };
+    if (Boolean(tasks[0].completed)) {
+      pointResult = await reverseCompletion(connection, {
+        userId: req.session.userId, activityType: "task", activityId: id,
+      });
+    }
+
+    await connection.query("DELETE FROM tasks WHERE id = ? AND user_id = ?", [id, req.session.userId]);
+    await connection.commit();
+    res.json({ deleted: true, ...pointResult });
   } catch (error) {
+    await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Could not delete task." });
+  } finally {
+    connection.release();
   }
 });
 
