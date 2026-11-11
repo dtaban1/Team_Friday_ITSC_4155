@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
+import HabitTargetMeter from "../components/HabitTargetMeter.jsx";
+import { habitTargetKey } from "../habitTargetProgress.mjs";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -186,6 +188,8 @@ function Dashboard() {
   const [tasks, setTasks] = useState([]);
   const [goals, setGoals] = useState([]);
   const [events, setEvents] = useState([]);
+  const [targets, setTargets] = useState({});
+  const [targetError, setTargetError] = useState("");
   const [pointsBalance, setPointsBalance] = useState(0);
   const [achievements, setAchievements] = useState([]);
   const [achievementNotice, setAchievementNotice] = useState("");
@@ -243,6 +247,20 @@ function Dashboard() {
         const sessionData = await sessionResponse.json();
         const currentUser = sessionData.user;
         setUser(currentUser);
+
+        // Target availability must not prevent the rest of the dashboard loading.
+        try {
+          const response = await fetch(`${API_URL}/api/habit-targets`, {
+            credentials: "include", signal: controller.signal,
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || "Could not load habit targets.");
+          setTargets(Object.fromEntries(data.map((target) => [habitTargetKey(target.kind, target.habitId), target.target])));
+          setTargetError("");
+        } catch (targetLoadError) {
+          if (targetLoadError.name === "AbortError") throw targetLoadError;
+          setTargetError("Your habits are available, but target progress could not be loaded. Check the habit-targets migration and reload.");
+        }
 
         const [habitResponse, typeResponse, customResponse, taskResponse, goalResponse, eventResponse, pointResponse, achievementResponse] = await Promise.all([
           fetch(`${API_URL}/api/users/${currentUser.id}/habits`, {
@@ -655,7 +673,7 @@ function Dashboard() {
           <div className="dashboard-card-heading">
             <div>
               <span className="dashboard-card-label">Progress</span>
-              <h2>Today&apos;s progress</h2>
+              <h2>Today&apos;s habit check-ins</h2>
             </div>
             <div className="dashboard-progress-heading">
               <span className="dashboard-date-badge">{formatShortDate(today)}</span>
@@ -666,7 +684,7 @@ function Dashboard() {
           <div
             className="dashboard-progress-track"
             role="progressbar"
-            aria-label="Today's habit progress"
+            aria-label="Today's habit logging progress"
             aria-valuemin="0"
             aria-valuemax="100"
             aria-valuenow={progressPercent}
@@ -741,7 +759,7 @@ function Dashboard() {
             <span className="dashboard-stat-icon green" aria-hidden="true">◎</span>
             <div>
               <strong>{progressPercent}%</strong>
-              <span>today&apos;s habit progress</span>
+              <span>today&apos;s check-in progress</span>
             </div>
           </article>
 
@@ -846,9 +864,11 @@ function Dashboard() {
             </div>
 
             <div className="dashboard-manage-row">
-              <p>Add, edit, or remove habits.</p>
+              <p>Add habits and set or edit daily quantity targets.</p>
               <Link className="dashboard-manage-link" to="/habits/manage">Manage habits →</Link>
             </div>
+
+            {targetError && <p className="dashboard-alert" role="alert">{targetError}</p>}
 
             {totalTrackedHabits === 0 ? (
               <div className="dashboard-empty-state" role="status">
@@ -942,6 +962,26 @@ function Dashboard() {
               </form>
 
               <div className="dashboard-habit-summary">
+                <section className="dashboard-target-summary" aria-labelledby="daily-targets-title">
+                  <h3 id="daily-targets-title">Daily targets · {formatShortDate(selectedDate)}</h3>
+                  <p>Saved values compared with your current targets. Save habits to update progress.</p>
+                  {[...habitTypes.map((habit) => ({ ...habit, kind: "standard" })),
+                    ...customHabits.map((habit) => ({ ...habit, kind: "custom" }))].map((habit) => {
+                    const target = targets[habitTargetKey(habit.kind, habit.id)];
+                    const entry = selectedDateEntries.find((item) => habit.kind === "custom"
+                      ? Number(item.customHabitId) === Number(habit.id)
+                      : item.customHabitId == null && item.habit === habit.name);
+                    return (
+                      <div className="dashboard-target-item" key={habitTargetKey(habit.kind, habit.id)}>
+                        <strong>{habit.name}</strong>
+                        {target != null
+                          ? <HabitTargetMeter name={habit.name} unit={habit.unit} value={entry?.value ?? 0} target={target} />
+                          : <p>{targetError ? "Target unavailable." : "No daily target set."} <Link to="/habits/manage">Manage targets →</Link></p>}
+                      </div>
+                    );
+                  })}
+                  <p>Targets do not change existing points, streaks, calendar completion, or reward rules.</p>
+                </section>
                 <div className="dashboard-subheading-row">
                   <div>
                     <span className="dashboard-card-label">Selected day</span>
