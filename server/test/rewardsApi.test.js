@@ -11,7 +11,8 @@ class RewardDb {
     this.claims = [];
     this.log = [];
     this.tasks = [{ id: 10, title: "Homework", completed: 1 }];
-    this.entries = [{ habitId: 1, kind: "standard", entryDate: "2026-10-28" }];
+    this.entries = [{ habitId: 1, kind: "standard", entryDate: "2026-10-28", value: 1 }];
+    this.rules = [];
     this.released = 0;
     this.lock = Promise.resolve();
   }
@@ -26,6 +27,7 @@ class RewardDb {
   async query(rawSql, args = []) {
     const sql = rawSql.replace(/\s+/g, " ").trim();
     this.log.push({ sql, args });
+    if (sql.startsWith("SELECT habit_kind AS kind")) return [args[0] === 12 ? this.rules : []];
     if (sql.startsWith("SELECT id FROM users")) return [[{ id: args[0] }]];
     if (sql.startsWith("SELECT COUNT(*)")) return [[{ count: this.rewards.filter((r) => r.userId === args[0]).length }]];
     if (sql.startsWith("SELECT id, title, completed FROM tasks")) return [args[0] === 12 ? this.tasks : []];
@@ -162,4 +164,32 @@ test("deleting a reward also deletes its history in the schema's cascade model",
   const data = await (await call()).json();
   assert.equal(data.rewards.length, 0);
   assert.equal(data.history.length, 0);
+});
+
+test("daily and habit rewards require reaching the date's quantity target", async (t) => {
+  const { call, create, db } = await setup(t);
+  db.rules = [{ kind: "standard", habitId: 1, effectiveDate: "2026-10-28", target: 8 }];
+  db.entries = [{ habitId: 1, kind: "standard", entryDate: "2026-10-28", value: 4 }];
+  await create({ targetType: "daily" });
+  await create({ targetType: "habit", targetId: 1, habitKind: "standard", milestoneDays: 1 });
+  assert.equal((await call("/1/claim", { method: "POST", body: {} })).status, 409);
+  assert.equal((await call("/2/claim", { method: "POST", body: {} })).status, 409);
+  db.entries[0].value = 8;
+  assert.equal((await call("/1/claim", { method: "POST", body: {} })).status, 201);
+  assert.equal((await call("/2/claim", { method: "POST", body: {} })).status, 201);
+  db.rules[0].target = 16;
+  const data = await (await call()).json();
+  assert.equal(data.history.length, 2);
+  assert.equal(data.rewards.find((r) => r.targetType === "habit").status.reason, "Already claimed");
+  assert.equal(db.claims.length, 2);
+});
+
+test("seven-day rewards ignore under-target days but preserve earlier days' requirements", async (t) => {
+  const { call, create, db } = await setup(t);
+  db.entries = Array.from({ length: 7 }, (_, i) => ({ habitId: 1, kind: "standard", entryDate: `2026-10-${22 + i}`, value: 4 }));
+  db.rules = [{ kind: "standard", habitId: 1, effectiveDate: "2026-10-28", target: 8 }];
+  await create({ targetType: "seven_day" });
+  assert.equal((await call("/1/claim", { method: "POST", body: {} })).status, 409);
+  db.entries[6].value = 8;
+  assert.equal((await call("/1/claim", { method: "POST", body: {} })).status, 201);
 });

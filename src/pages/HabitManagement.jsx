@@ -152,12 +152,12 @@ function HabitManagement() {
     try {
       const result = await apiRequest(`/api/habit-targets/${habit.kind}/${habit.id}`, {
         method: target === null ? "DELETE" : "PUT",
-        ...(target === null ? {} : { body: JSON.stringify({ target }) }),
+        body: JSON.stringify({ ...(target === null ? {} : { target }), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
       });
       setTargets((current) => ({ ...current, [habitTargetKey(habit.kind, habit.id)]: result.target }));
       setMessage(target === null
         ? `Daily target removed for “${habit.name}”. All entries are kept.`
-        : `Daily target for “${habit.name}” saved: ${result.target} ${habit.unit}. All entries are kept.`);
+        : `Daily target for “${habit.name}” saved: ${result.target} ${habit.unit}. Applies from today; today's completion and points are updated. Earlier days and claimed rewards are kept.`);
       return true;
     } catch (requestError) {
       if (requestError.status === 401) navigate("/login", { replace: true });
@@ -234,6 +234,7 @@ function HabitManagement() {
             <span className="dashboard-kicker">Make it yours</span>
             <h1>Manage your habits</h1>
             <p>Add habits, set personal daily targets, or edit your daily tracking. Targets compare your saved quantities without changing your past entries.</p>
+            <p>Changing a target updates today's completion and points. Earlier days, claimed rewards, and unlocked achievements are kept.</p>
           </div>
           <Link to="/dashboard#habits" className="management-back">← Back to dashboard</Link>
         </div>

@@ -13,6 +13,7 @@ class TargetDb {
     this.log = [];
     this.released = 0;
     this.rollbacks = 0;
+    this.rules = [];
   }
   async getConnection() {
     return { query: this.query.bind(this), beginTransaction: async () => {}, commit: async () => {},
@@ -21,6 +22,16 @@ class TargetDb {
   async query(raw, args) {
     const sql = raw.replace(/\s+/g, " ").trim();
     this.log.push({ sql, args });
+    if (sql.startsWith("SELECT id FROM users")) return [[{ id: args[0] }]];
+    if (sql.startsWith("SELECT habit_kind AS kind")) return [this.rules.filter((r) => r.userId === args[0])];
+    if (sql.startsWith("INSERT INTO habit_target_rules")) {
+      const [userId, kind, habitId, effectiveDate, target] = args;
+      this.rules = this.rules.filter((r) => !(r.userId === userId && r.kind === kind && r.habitId === habitId && r.effectiveDate === effectiveDate));
+      this.rules.push({ userId, kind, habitId, effectiveDate, target });
+      return [{ affectedRows: 1 }];
+    }
+    if (sql.startsWith("SELECT value FROM habit_entries") || sql.startsWith("SELECT value FROM custom_habit_entries")) return [[]];
+    if (sql.startsWith("SELECT COALESCE(SUM(points)")) return [[{ balance: 0 }]];
     if (sql.startsWith("SELECT id FROM habit_types")) return [args[0] === 1 ? [{ id: 1 }] : []];
     if (sql.startsWith("SELECT id FROM custom_habits")) return [this.custom.filter((h) => h.id === args[0] && h.userId === args[1])];
     if (sql.startsWith("SELECT IF(")) return [this.targets.filter((t) => t.userId === args[0])
@@ -49,7 +60,7 @@ async function setup(t) {
   app.use(express.json());
   // Test-only identity stub; the production mount uses express-session.
   app.use((req, _res, next) => { req.session = { userId: Number(req.get("X-Test-User")) || null }; next(); });
-  app.use("/api/habit-targets", createHabitTargetsRouter(db, { clientUrl: "http://localhost:5173" }));
+  app.use("/api/habit-targets", createHabitTargetsRouter(db, { clientUrl: "http://localhost:5173", now: () => new Date("2026-11-11T16:00:00Z") }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));

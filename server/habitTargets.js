@@ -1,4 +1,5 @@
 const express = require("express");
+const { localToday, loadTargetRules, lockHabitAccount, recordTargetChange } = require("./habitCompletion");
 
 const MAX_TARGET = 99999999.99;
 
@@ -7,7 +8,7 @@ function validTarget(value) {
     value <= MAX_TARGET && /^\d+(\.\d{1,2})?$/.test(String(value));
 }
 
-function createHabitTargetsRouter(db, { clientUrl = process.env.CLIENT_URL || "http://localhost:5173" } = {}) {
+function createHabitTargetsRouter(db, { clientUrl = process.env.CLIENT_URL || "http://localhost:5173", now = () => new Date() } = {}) {
   const router = express.Router();
   router.use((req, res, next) => {
     if (!req.session?.userId) return res.status(401).json({ message: "Please log in." });
@@ -30,6 +31,11 @@ function createHabitTargetsRouter(db, { clientUrl = process.env.CLIENT_URL || "h
       console.error("Could not load habit targets:", error.code || error.message);
       res.status(500).json({ message: "Could not load targets. Check the habit-targets database migration." });
     }
+  });
+
+  router.get("/rules", async (req, res) => {
+    try { res.json(await loadTargetRules(db, req.session.userId)); }
+    catch (error) { console.error(error); res.status(500).json({ message: "Could not load completion rules. Run the connected-progress migration." }); }
   });
 
   router.use("/:kind/:id", (req, res, next) => {
@@ -57,10 +63,14 @@ function createHabitTargetsRouter(db, { clientUrl = process.env.CLIENT_URL || "h
     }
     const { kind, id } = req.targetHabit;
     const userId = req.session.userId;
+    let today;
+    try { today = localToday(req.body?.timeZone || "UTC", now()); }
+    catch { return res.status(400).json({ message: "Choose a valid time zone." }); }
     let connection;
     try {
       connection = await db.getConnection();
       await connection.beginTransaction();
+      await lockHabitAccount(connection, userId);
       if (!(await findOwnedHabit(connection, userId, req.targetHabit))) {
         await connection.rollback();
         return res.status(404).json({ message: "Habit not found." });
@@ -70,8 +80,9 @@ function createHabitTargetsRouter(db, { clientUrl = process.env.CLIENT_URL || "h
         VALUES (?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE target_value = VALUES(target_value)`,
       [userId, kind === "standard" ? id : null, kind === "custom" ? id : null, target]);
+      const pointResult = await recordTargetChange(connection, { userId, kind, habitId: id, target, today });
       await connection.commit();
-      res.json({ kind, habitId: id, target });
+      res.json({ kind, habitId: id, target, effectiveDate: today, ...pointResult });
     } catch (error) {
       if (connection) await connection.rollback();
       console.error("Could not save habit target:", error.code || error.message);
@@ -82,18 +93,23 @@ function createHabitTargetsRouter(db, { clientUrl = process.env.CLIENT_URL || "h
   router.delete("/:kind/:id", async (req, res) => {
     const { kind, id } = req.targetHabit;
     const userId = req.session.userId;
+    let today;
+    try { today = localToday(req.body?.timeZone || "UTC", now()); }
+    catch { return res.status(400).json({ message: "Choose a valid time zone." }); }
     let connection;
     try {
       connection = await db.getConnection();
       await connection.beginTransaction();
+      await lockHabitAccount(connection, userId);
       if (!(await findOwnedHabit(connection, userId, req.targetHabit))) {
         await connection.rollback();
         return res.status(404).json({ message: "Habit not found." });
       }
       const column = kind === "standard" ? "standard_habit_id" : "custom_habit_id";
       await connection.query(`DELETE FROM habit_targets WHERE user_id = ? AND ${column} = ?`, [userId, id]);
+      const pointResult = await recordTargetChange(connection, { userId, kind, habitId: id, target: null, today });
       await connection.commit();
-      res.json({ kind, habitId: id, target: null });
+      res.json({ kind, habitId: id, target: null, effectiveDate: today, ...pointResult });
     } catch (error) {
       if (connection) await connection.rollback();
       console.error("Could not remove habit target:", error.code || error.message);

@@ -7,7 +7,7 @@ it, **Cancel** to discard an edit, or **Remove target** to stop the comparison.
 Targets persist in MySQL and are private to the logged-in account.
 
 The dashboard's Daily targets panel compares **saved** values for the selected
-date against the current target. Save habits before expecting the bar to change.
+date against that date's target. Save habits before expecting the bar to change.
 Four of eight cups is 50%; eight or more reaches the target. The bar stops at
 100%, while the actual logged quantity remains visible. Missing/zero logs show 0%.
 Habit and target values are never added to another account's progress.
@@ -18,6 +18,8 @@ For a new installation, `database.sql` includes `habit_targets`. For an existing
 installation, back up as usual, then open `server/migrate_habit_targets.sql` in
 MySQL Workbench, select **the same database configured in `server/.env`** and
 execute the script. The normal team database is `ontrack_db`.
+Then also run `server/migrate_connected_progress.sql` to connect completion,
+points, streaks, calendar and rewards. See [connected setup](README_CONNECTED_PROGRESS.md).
 
 In the MySQL command-line client, from the project root:
 
@@ -42,16 +44,17 @@ Do not upload `.env` or share database passwords.
   places. Empty, zero, negative, nonnumeric, nonfinite, overprecise and larger
   values are rejected on the server (and normal form constraints guide users).
 - The same built-in habit may have different targets for different accounts.
-- Editing/removing a target never changes or deletes entries. Historical dates
-  are compared against **the current target**; this feature does not store a
-  timeline of previous target settings. The calendar retains its existing
-  positive-entry completion rule, rather than rewriting past completion results.
+- Editing/removing a target never changes or deletes entries. Target requirements
+  are dated: changes apply from today, not earlier dates. Today's completion and
+  points are reconciled in the target-edit transaction; earlier days keep their
+  previous requirement.
 - Hiding/restoring habits preserves their target. Current progress only includes
   active habits. Editing a custom habit's unit does not convert numeric values
   or targets automatically; review the target when changing units.
-- Existing logged-day summaries, streaks, points, achievements and Rewards keep
-  their existing behavior. Reaching a quantity target is a separate indicator;
-  it does not grant extra points or change reward eligibility.
+- Completion, streaks, calendar, habit points and habit rewards share one rule:
+  reach the date's target, or log a positive value if no target applies. Already
+  claimed rewards and unlocked achievements stay saved. Repeated saves do not
+  duplicate point awards. See the connected-progress guide for reversal behavior.
 - No new dependencies. Keep `CLIENT_URL` equal to the frontend origin, without a
   trailing slash; target writes require that origin and an authenticated session.
 
@@ -60,8 +63,10 @@ Do not upload `.env` or share database passwords.
 All endpoints require the existing login session; no client user ID is trusted.
 
 - `GET /api/habit-targets` returns `{kind, habitId, target}[]` for the account.
+- `GET /api/habit-targets/rules` returns account-specific dated requirements.
 - `PUT /api/habit-targets/:kind/:id`, JSON `{ "target": 8 }`, saves/replaces a
   target. `kind` is `standard` or `custom`; unowned/missing habits return 404.
+  Include `timeZone` (the browser's IANA zone) in PUT/DELETE JSON; UTC is the default.
 - `DELETE /api/habit-targets/:kind/:id` removes only that account's target.
 
 The table has distinct standard/custom foreign keys and per-account unique keys.
@@ -94,12 +99,10 @@ Do not merge until live checks and a teammate review are complete.
 
 ### Implementation verification
 
-Based on `main` commit `bc05884` (rewards already merged). The 11 new target
-tests pass, and the Vite production build succeeds. The full backend suite has
-31 passing tests and 3 failing habit-group tests. Those same three failures were
-reproduced on unchanged `main`: its old FakeConnection does not recognize the
-calendar's `habit_schedule_periods` INSERT. This change does not modify those
-tests or the habit-group implementation.
+Based on `main` commit `bc05884` (rewards already merged). The connected update
+passes all 42 backend tests and the Vite production build. Existing habit-group
+test doubles now model the calendar's schedule INSERT and real insert IDs; no
+tests were skipped or removed.
 
 Browser automation could not launch because the environment denied Chromium's
 socket operation. No live MySQL server was available for this implementation

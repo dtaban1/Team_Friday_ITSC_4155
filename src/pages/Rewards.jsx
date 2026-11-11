@@ -9,9 +9,9 @@ const RULES = {
   task: "Claim once after you mark this task complete.",
   goal: "Claim once after you mark this goal complete.",
   event: "Claim once when the event's scheduled date and time arrive. Events without a time unlock at the start of that day.",
-  habit: "Choose how many different days to log this habit. Only positive values count; the days do not need to be consecutive.",
-  daily: "Log a positive value for any active habit today. You can claim this reward once each day.",
-  seven_day: "Log a positive value for any active habit on seven consecutive days, including today. Claim again after another seven non-overlapping days.",
+  habit: "Choose how many different days to complete this habit. Reach the target for each date; without a target, any positive value counts. The days need not be consecutive.",
+  daily: "Complete any active habit today: reach its target, or log a positive value if no target is set. Claim once each day.",
+  seven_day: "Complete an active habit on each of seven consecutive days, including today, using that day's target. Claim again after seven non-overlapping days.",
 };
 
 async function request(path = "", options = {}) {
@@ -191,7 +191,7 @@ function Rewards() {
                     </select>
                   </label>}
                   {linked && !options.length && <p className="rewards-rule">No available {targetType}s yet. <Link to={targetType === "habit" ? "/habits/manage" : `/dashboard#${targetType}s`}>Add one first →</Link></p>}
-                  {targetType === "habit" && <label className="rewards-field">Logged-day milestone
+                  {targetType === "habit" && <label className="rewards-field">Completed-day milestone
                     <input type="number" min={1} max={365} step={1} value={milestoneDays} onChange={(event) => setMilestoneDays(event.target.value)} required />
                   </label>}
                   <p className="rewards-rule">{RULES[targetType]}</p>
@@ -219,7 +219,7 @@ function Rewards() {
                     <div className="reward-title-row"><span className="reward-type">{LABELS[reward.targetType]}</span><span className={`reward-status ${reward.status.eligible ? "ready" : ""}`}>{reward.status.eligible ? "Ready to claim" : reward.status.reason === "Already claimed" ? "Celebrated" : "In progress"}</span></div>
                     <h3>{reward.title}</h3>
                     {reward.description && <p>{reward.description}</p>}
-                    <p className="reward-target">For: {reward.targetLabel}{reward.targetType === "habit" ? ` · ${reward.milestoneDays} logged days` : ""}</p>
+                    <p className="reward-target">For: {reward.targetLabel}{reward.targetType === "habit" ? ` · ${reward.milestoneDays} completed days` : ""}</p>
                     {!reward.status.eligible && <p className="reward-reason">{reward.status.reason}</p>}
                     {["habit", "seven_day"].includes(reward.targetType) && <progress max={reward.status.total} value={reward.status.progress} aria-label={`${reward.title}: ${reward.status.progress} of ${reward.status.total} days`} />}
                     {reward.status.eligible && <form className="reward-claim-form" onSubmit={(event) => { event.preventDefault(); runAction(() => request(`/${reward.id}/claim`, { method: "POST", body: JSON.stringify({ note: claimNotes[reward.id] || "" }) })); }}>

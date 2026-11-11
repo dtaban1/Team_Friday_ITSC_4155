@@ -1,5 +1,16 @@
 export const habitTargetKey = (kind, id) => `${kind}:${id}`;
 
+// Mirrors the server's date lookup for displaying requirements on unlogged days.
+// Completion itself is always supplied by the server, never trusted from the UI.
+export function targetForDay(rules, kind, habitId, date) {
+  let latest = null;
+  for (const rule of rules) {
+    if (rule.kind === kind && Number(rule.habitId) === Number(habitId) && rule.effectiveDate <= date &&
+        (!latest || rule.effectiveDate > latest.effectiveDate)) latest = rule;
+  }
+  return latest?.target == null ? null : Number(latest.target);
+}
+
 export function targetProgress(value, target) {
   const quantity = Number(value);
   const goal = Number(target);

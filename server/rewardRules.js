@@ -99,15 +99,15 @@ function rewardStatus(reward, context, claims = [], now = new Date()) {
     progress = target ? new Set(context.entries.filter((entry) => entry.kind === reward.habitKind &&
       Number(entry.habitId) === Number(reward.targetId) && entry.entryDate <= today).map((entry) => entry.entryDate)).size : 0;
     eligible = Boolean(target && progress >= total);
-    reason = !target ? "Restore the linked habit to continue" : `${Math.min(progress, total)} of ${total} logged days`;
+    reason = !target ? "Restore the linked habit to continue" : `${Math.min(progress, total)} of ${total} completed days`;
   } else {
-    // One or more positive entries in an active habit counts as one activity day.
+    // Context contains only entries satisfying the requirement on their logged date.
     const dates = new Set(context.entries.filter((entry) => entry.entryDate <= today).map((entry) => entry.entryDate));
     periodKey = today;
     if (reward.targetType === "daily") {
       eligible = dates.has(today);
       progress = Number(eligible);
-      reason = "Log a positive habit value today";
+      reason = "Complete a habit today: reach its target, or log a positive value if no target is set";
       if (ownClaims.some((claim) => claim.periodKey === today)) return { eligible: false, reason: "Claimed today", progress: 1, total: 1, periodKey };
     } else {
       total = 7;

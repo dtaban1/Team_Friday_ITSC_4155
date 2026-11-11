@@ -7,6 +7,8 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const startMonth = d => new Date(d.getFullYear(), d.getMonth(), 1);
 const key = (kind,id) => `${kind}:${id}`;
+const completionLabel = (item) => !item.entry ? 'No entry — not completed'
+  : `${item.entry.value} ${item.unit}${item.entry.completionTarget == null ? '' : ` / target ${item.entry.completionTarget} ${item.unit}`} · ${item.completed ? 'Completed' : 'Not completed'}`;
 
 export default function HabitHistory() {
   const navigate = useNavigate();
@@ -56,7 +58,7 @@ export default function HabitHistory() {
           if(info) active.set(id,{key:id,name:info.name,unit:info.unit,kind:entry.kind,habitId:entry.habitId});
         }
       }
-      const items=[...active.values()].map(h=>({...h,entry:entries.get(`${date}:${h.key}`),completed:Number(entries.get(`${date}:${h.key}`)?.value)>0})).sort((a,b)=>a.name.localeCompare(b.name));
+      const items=[...active.values()].map(h=>({...h,entry:entries.get(`${date}:${h.key}`),completed:Boolean(entries.get(`${date}:${h.key}`)?.completed)})).sort((a,b)=>a.name.localeCompare(b.name));
       const completed=items.filter(h=>h.completed).length;
       result[date]={items,completed,total:items.length,percentage:items.length?Math.round(completed/items.length*100):null,status:!items.length?'empty':completed===0?'none':completed===items.length?'all':'some'};
     }
@@ -77,7 +79,7 @@ export default function HabitHistory() {
       {error && <p role="alert" className="history-error">{error}</p>}{loading && <p role="status">Loading history...</p>}
       <div className="history-calendar" aria-label="Habit completion calendar">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div key={d} className="history-weekday">{d}</div>)}{dayCells.map((date,i)=>date?<button type="button" key={date} aria-pressed={selected===date} aria-label={`${date}, ${days[date]?.status||'loading'}${days[date]?.percentage!=null?`, ${days[date].percentage}% completed`:''}`} className={`history-day ${days[date]?.status||'empty'} ${selected===date?'selected':''}`} onClick={()=>setSelected(date)}><span>{Number(date.slice(-2))}</span>{days[date]?.percentage!=null&&<small>{days[date].percentage}%</small>}{days[date]?.status==='empty'&&<small>—</small>}</button>:<div className="history-placeholder" key={`blank-${i}`}/> )}</div>
       </div>
-      <section className="history-panel history-details" aria-live="polite"><h2>{new Date(`${selected}T12:00:00`).toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'})}</h2>{loading?<p>Loading...</p>:!chosen?<p>Select a day in this month.</p>:chosen.status==='future'?<p>Future dates do not have completion results.</p>:chosen.status==='empty'?<p>No habits were scheduled for this day.</p>:<><p className="history-percent"><strong>{chosen.percentage}% complete</strong> · {chosen.completed} of {chosen.total} scheduled habits</p><ul className="history-habits">{chosen.items.map(h=><li key={h.key} className={h.completed?'completed':'incomplete'}><span className="history-check">{h.completed?'✓':'○'}</span><span><strong>{h.name}</strong><small>{h.completed?`Completed${h.entry?.value!=null?` · ${h.entry.value} ${h.unit}`:''}`:'Not completed'}</small></span></li>)}</ul></>}</section>
+      <section className="history-panel history-details" aria-live="polite"><h2>{new Date(`${selected}T12:00:00`).toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'})}</h2>{loading?<p>Loading...</p>:!chosen?<p>Select a day in this month.</p>:chosen.status==='future'?<p>Future dates do not have completion results.</p>:chosen.status==='empty'?<p>No habits were scheduled for this day.</p>:<><p className="history-percent"><strong>{chosen.percentage}% complete</strong> · {chosen.completed} of {chosen.total} scheduled habits</p><ul className="history-habits">{chosen.items.map(h=><li key={h.key} className={h.completed?'completed':'incomplete'}><span className="history-check">{h.completed?'✓':'○'}</span><span><strong>{h.name}</strong><small>{completionLabel(h)}</small></span></li>)}</ul></>}</section>
     </div>
   </main>;
 }
