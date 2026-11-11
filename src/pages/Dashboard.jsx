@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
 import HabitTargetMeter from "../components/HabitTargetMeter.jsx";
 import { habitTargetKey } from "../habitTargetProgress.mjs";
+import { saveHabitsInOrder } from "../saveHabitsInOrder.mjs";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -477,11 +478,11 @@ function Dashboard() {
     setIsSavingHabits(true);
 
     try {
-      const habitResults = await Promise.all([
-        ...(activeStandardNames.has("water") ? [saveHabit("water", water)] : []),
-        ...(activeStandardNames.has("sleep") ? [saveHabit("sleep", sleep)] : []),
+      const habitResults = await saveHabitsInOrder([
+        ...(activeStandardNames.has("water") && water !== "" ? [() => saveHabit("water", water)] : []),
+        ...(activeStandardNames.has("sleep") && sleep !== "" ? [() => saveHabit("sleep", sleep)] : []),
         ...customHabits.filter((habit) => customValues[habit.id] !== undefined && customValues[habit.id] !== "")
-          .map(async (habit) => {
+          .map((habit) => async () => {
             const response = await fetch(`${API_URL}/api/custom-habits/${habit.id}/entries`, {
               method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ entryDate: selectedDate, value: Number(customValues[habit.id]) }),
@@ -504,7 +505,8 @@ function Dashboard() {
       await refreshAchievements(unlocked);
       setHabitMessage(`Habits saved for ${formatShortDate(selectedDate)}.`);
     } catch (saveError) {
-      setHabitMessage(saveError.message || "Could not save habits.");
+      setHabitMessage(`${saveError.message || "Could not save habits."} Some earlier habits may already be saved. Please try Save habits again.`);
+      // Keep the entered values intact so a retry also includes the failed save.
     } finally {
       setIsSavingHabits(false);
     }

@@ -9,6 +9,7 @@ const { createRewardsRouter } = require("./rewards");
 const { createHabitTargetsRouter } = require("./habitTargets");
 const { HABIT_GROUPS, findHabitGroup, validateSelectedHabits, addHabitsFromGroup } = require("./habitGroups");
 const { setSchedule, getHistory } = require("./habitHistory");
+const { habitSaveTransaction, isDeadlock } = require("./habitSaveTransaction");
 
 const app = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -673,44 +674,43 @@ app.put("/api/custom-habits/:id/entries", requireHabitSession, async (req, res) 
   if (!id || !validDate || typeof value !== "number" || !Number.isFinite(number) || number < 0 || number > 99999999.99) {
     return res.status(400).json({ message: "Choose a valid date and a non-negative value up to 99999999.99." });
   }
-  const connection = await pool.getConnection();
   try {
-    await connection.beginTransaction();
-    const [rows] = await connection.query("SELECT id FROM custom_habits WHERE id = ? AND user_id = ? AND is_active = 1", [id, req.session.userId]);
-    if (!rows.length) {
-      await connection.rollback();
-      return res.status(404).json({ message: "Habit not found." });
-    }
+    const result = await habitSaveTransaction(pool, req.session.userId, async (connection) => {
+      const [rows] = await connection.query("SELECT id FROM custom_habits WHERE id = ? AND user_id = ? AND is_active = 1", [id, req.session.userId]);
+      if (!rows.length) {
+        throw Object.assign(new Error("Habit not found."), { httpStatus: 404 });
+      }
 
-    const [existing] = await connection.query(
-      "SELECT value FROM custom_habit_entries WHERE custom_habit_id = ? AND entry_date = ? FOR UPDATE",
-      [id, entryDate]
-    );
-    const wasCompleted = existing.length > 0 && Number(existing[0].value) > 0;
-    const isCompleted = number > 0;
+      const [existing] = await connection.query(
+        "SELECT value FROM custom_habit_entries WHERE custom_habit_id = ? AND entry_date = ? FOR UPDATE",
+        [id, entryDate]
+      );
+      const wasCompleted = existing.length > 0 && Number(existing[0].value) > 0;
+      const isCompleted = number > 0;
 
-    await connection.query(`INSERT INTO custom_habit_entries (custom_habit_id, entry_date, value) VALUES (?, ?, ?)
-      ON DUPLICATE KEY UPDATE value = VALUES(value)`, [id, entryDate, number]);
+      await connection.query(`INSERT INTO custom_habit_entries (custom_habit_id, entry_date, value) VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE value = VALUES(value)`, [id, entryDate, number]);
 
-    let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, req.session.userId) };
-    if (!wasCompleted && isCompleted) {
-      pointResult = await awardCompletion(connection, {
-        userId: req.session.userId, activityType: "custom_habit", activityId: id, completionDate: entryDate,
-      });
-    } else if (wasCompleted && !isCompleted) {
-      pointResult = await reverseCompletion(connection, {
-        userId: req.session.userId, activityType: "custom_habit", activityId: id, completionDate: entryDate,
-      });
-    }
+      let pointResult = { pointsChange: 0, pointsBalance: await getPointBalance(connection, req.session.userId) };
+      if (!wasCompleted && isCompleted) {
+        pointResult = await awardCompletion(connection, {
+          userId: req.session.userId, activityType: "custom_habit", activityId: id, completionDate: entryDate,
+        });
+      } else if (wasCompleted && !isCompleted) {
+        pointResult = await reverseCompletion(connection, {
+          userId: req.session.userId, activityType: "custom_habit", activityId: id, completionDate: entryDate,
+        });
+      }
 
-    await connection.commit();
-    res.json({ message: "Habit entry saved.", value: number, ...pointResult });
+      return { message: "Habit entry saved.", value: number, ...pointResult };
+    });
+    res.json(result);
   } catch (error) {
-    await connection.rollback();
     console.error(error);
-    res.status(500).json({ message: "Could not save habit entry." });
-  } finally {
-    connection.release();
+    res.status(error.httpStatus || (isDeadlock(error) ? 503 : 500)).json({ message:
+      error.httpStatus ? error.message : isDeadlock(error)
+        ? "Another save conflicted with this one. Please try saving habits again."
+        : "Could not save habit entry." });
   }
 });
 
@@ -869,16 +869,13 @@ app.put(
       }
 
       const habit = habitRows[0];
-      const connection = await pool.getConnection();
-      try {
-        await connection.beginTransaction();
+      const result = await habitSaveTransaction(pool, userId, async (connection) => {
         const [hidden] = await connection.query(
           "SELECT 1 FROM user_hidden_habit_types WHERE user_id = ? AND habit_type_id = ?",
           [userId, habit.id]
         );
         if (hidden.length) {
-          await connection.rollback();
-          return res.status(409).json({ message: "Restore this habit before logging new entries." });
+          throw Object.assign(new Error("Restore this habit before logging new entries."), { httpStatus: 409 });
         }
 
         const [existing] = await connection.query(
@@ -909,22 +906,19 @@ app.put(
           });
         }
 
-        await connection.commit();
-        res.json({
+        return {
           userId, habit: habit.name, unit: habit.unit, entryDate,
           value: numericValue, notes, ...pointResult,
-        });
-      } catch (transactionError) {
-        await connection.rollback();
-        throw transactionError;
-      } finally {
-        connection.release();
-      }
+        };
+      });
+      res.json(result);
     } catch (error) {
       console.error(error);
 
-      res.status(500).json({
-        message: "Could not save habit entry",
+      res.status(error.httpStatus || (isDeadlock(error) ? 503 : 500)).json({
+        message: error.httpStatus ? error.message : isDeadlock(error)
+          ? "Another save conflicted with this one. Please try saving habits again."
+          : "Could not save habit entry",
       });
     }
   }
