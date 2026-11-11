@@ -1,6 +1,5 @@
 const express = require("express");
 const { RewardError, positiveId, validateReward, decodeImage, findTarget, rewardStatus } = require("./rewardRules");
-const { loadTargetRules, withCompletion, lockHabitAccount } = require("./habitCompletion");
 
 const REWARD_COLUMNS = `id, title, description, target_type AS targetType, target_id AS targetId,
   habit_kind AS habitKind, milestone_days AS milestoneDays, target_label AS targetLabel,
@@ -16,16 +15,15 @@ async function loadContext(db, userId) {
     WHERE h.user_id IS NULL
     UNION ALL SELECT id, name AS title, 'custom' AS kind FROM custom_habits WHERE user_id = ? AND is_active = 1`, [userId, userId]);
   const [entries] = await db.query(`SELECT he.habit_type_id AS habitId, 'standard' AS kind,
-    DATE_FORMAT(he.entry_date, '%Y-%m-%d') AS entryDate, CAST(he.value AS DOUBLE) AS value FROM habit_entries he
+    DATE_FORMAT(he.entry_date, '%Y-%m-%d') AS entryDate FROM habit_entries he
     LEFT JOIN user_hidden_habit_types h ON h.habit_type_id = he.habit_type_id AND h.user_id = he.user_id
     WHERE he.user_id = ? AND he.value > 0 AND h.user_id IS NULL
     UNION ALL SELECT ce.custom_habit_id AS habitId, 'custom' AS kind,
-    DATE_FORMAT(ce.entry_date, '%Y-%m-%d') AS entryDate, CAST(ce.value AS DOUBLE) AS value
+    DATE_FORMAT(ce.entry_date, '%Y-%m-%d') AS entryDate
     FROM custom_habit_entries ce JOIN custom_habits ch ON ch.id = ce.custom_habit_id
     WHERE ch.user_id = ? AND ch.is_active = 1 AND ce.value > 0`, [userId, userId]);
   return { tasks: tasks.map((item) => ({ ...item, completed: Boolean(item.completed) })),
-    goals: goals.map((item) => ({ ...item, completed: Boolean(item.completed) })), events, habits,
-    entries: withCompletion(entries, await loadTargetRules(db, userId)).filter((entry) => entry.completed) };
+    goals: goals.map((item) => ({ ...item, completed: Boolean(item.completed) })), events, habits, entries };
 }
 
 async function loadClaims(db, userId) {
@@ -98,7 +96,6 @@ function createRewardsRouter(pool, { now = () => new Date() } = {}) {
     try {
       connection = await pool.getConnection();
       await connection.beginTransaction();
-      await lockHabitAccount(connection, req.session.userId);
       const [[reward]] = await connection.query(`SELECT ${REWARD_COLUMNS} FROM rewards WHERE id = ? AND user_id = ? FOR UPDATE`, [id, req.session.userId]);
       if (!reward) throw new RewardError("Reward not found.", 404);
       const context = await loadContext(connection, req.session.userId);

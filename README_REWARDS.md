@@ -52,20 +52,17 @@ existing `VITE_API_URL` override if needed.
 | Task | The user's linked task is marked complete | One claim per reward |
 | Goal | The user's linked goal is marked complete | One claim per reward |
 | Event | Its scheduled start date/time has arrived | One claim per reward |
-| Habit milestone | The selected active habit meets its dated completion requirement on N distinct days (1–365) | One claim per reward; dates need not be consecutive |
-| Daily | Any active habit meets today's completion requirement | Once per reward per calendar day |
-| Seven-day | Any active habit completes on each of seven consecutive dates, including today | Once per reward per non-overlapping seven-day window |
+| Habit milestone | The selected active habit has a positive value on N distinct days (1–365) | One claim per reward; dates need not be consecutive |
+| Daily | Any active habit has a positive entry dated today | Once per reward per calendar day |
+| Seven-day | Positive activity in any active habit on each of seven consecutive days, including today | Once per reward per non-overlapping seven-day window |
 
 For untimed events, the start of the scheduled day unlocks the reward; this does
 **not** assert the user attended the event. Daily/seven-day activity follows the
 app's habit-activity concept, not login visits or task completions. Entries dated
 in the future, zero-value entries, hidden built-in habits and inactive custom
 habits do not count. Habit milestones count only the selected habit, distinguishing
-custom and built-in IDs. Each date requires reaching its target, or a positive
-value if no target applied on that date. Previously completed dates can count; backfilled
+custom and built-in IDs. Previously logged positive dates can count; backfilled
 entries are allowed just as they are in the existing habit tracker.
-Apply `server/migrate_connected_progress.sql` as described in
-[connected progress](README_CONNECTED_PROGRESS.md) before starting the updated API.
 
 Each reward saves the browser's IANA time zone at creation. The server calculates
 today and event timing from its own clock in that saved zone; clients cannot

@@ -239,14 +239,3 @@ CREATE TABLE IF NOT EXISTS habit_targets (
 );
 
 SHOW TABLES LIKE 'habit_schedule_periods';
-
-CREATE TABLE IF NOT EXISTS habit_target_rules (
-  user_id INT NOT NULL,
-  habit_kind ENUM('standard', 'custom') NOT NULL,
-  habit_id INT UNSIGNED NOT NULL,
-  effective_date DATE NOT NULL,
-  target_value DECIMAL(10,2) NULL,
-  PRIMARY KEY (user_id, habit_kind, habit_id, effective_date),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CHECK (target_value IS NULL OR target_value > 0)
-);

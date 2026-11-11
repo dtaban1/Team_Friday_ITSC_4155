@@ -9,10 +9,6 @@
 For Custom Habit Targets (Issue #52), existing databases also need the additive
 `server/migrate_habit_targets.sql` migration. See [target setup and checks](README_TARGETS.md).
 
-To connect quantity targets to completion, points, streaks, calendar and rewards,
-also run `server/migrate_connected_progress.sql` in that database before starting
-the updated API. See [connected progress setup](README_CONNECTED_PROGRESS.md).
-
 For the personal rewards feature (Issue #44), existing databases also need
 `server/migrate_rewards.sql`. See [Rewards setup and claim rules](README_REWARDS.md).
 

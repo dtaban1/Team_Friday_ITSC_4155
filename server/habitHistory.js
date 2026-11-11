@@ -1,5 +1,4 @@
 const pool = require('./db');
-const { loadTargetRules, withCompletion } = require('./habitCompletion');
 
 // Changes are applied using the same DB connection/transaction as visibility updates.
 async function setSchedule(connection, userId, kind, id, active) {
@@ -38,6 +37,6 @@ async function getHistory(userId, month) {
     [userId,first,first]);
   const [catalog] = await pool.query(`SELECT 'standard' AS kind,id AS habitId,name,unit FROM habit_types
     UNION ALL SELECT 'custom',id,name,unit FROM custom_habits WHERE user_id=?`,[userId]);
-  return { month, periods, entries:withCompletion([...standard,...custom], await loadTargetRules(pool, userId)), habits:catalog };
+  return { month, periods, entries:[...standard,...custom], habits:catalog };
 }
 module.exports = {setSchedule,getHistory};

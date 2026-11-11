@@ -9,16 +9,9 @@ class FakeConnection {
     this.hidden = new Set();
     this.nextId = 1;
     this.queries = [];
-    this.schedules = new Set();
   }
   async query(sql, args = []) {
     this.queries.push([sql, args]);
-    if (sql.startsWith("INSERT INTO habit_schedule_periods")) {
-      const key = `${args[0]}:${args[1]}:${args[2]}`;
-      const existed = this.schedules.has(key);
-      this.schedules.add(key);
-      return [{ affectedRows: existed ? 0 : 1 }];
-    }
     if (sql === "SELECT id, name FROM habit_types") {
       return [[{ id: 1, name: "water" }, { id: 2, name: "sleep" }]];
     }
@@ -35,7 +28,7 @@ class FakeConnection {
       const duplicate = this.custom.some((row) => row.user_id === user_id && row.name.toLowerCase() === name.toLowerCase());
       if (duplicate) return [{ affectedRows: 0 }];
       this.custom.push({ id: this.nextId++, user_id, name, unit, is_active: 1 });
-      return [{ affectedRows: 1, insertId: this.nextId - 1 }];
+      return [{ affectedRows: 1 }];
     }
     if (sql.startsWith("UPDATE custom_habits SET is_active")) {
       const row = this.custom.find((item) => item.id === args[0] && item.user_id === args[1]);
@@ -80,7 +73,6 @@ test("selective group adds persist account-specific rows and second add skips du
     added: ["Practice Problems", "Study Time"], restored: [], skipped: [],
   });
   assert.equal(db.custom.length, 2);
-  assert.equal(db.schedules.size, 2);
   assert.deepEqual(await addHabitsFromGroup(db, 12, selection), {
     added: [], restored: [], skipped: ["Practice Problems", "Study Time"],
   });
