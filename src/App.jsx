@@ -1,3 +1,4 @@
+import Profile from "./pages/Profile";
 import { Navigate, Route, Routes } from "react-router-dom";
 import Home from "./pages/Home.jsx";
 import Login from "./pages/Login.jsx";
@@ -18,6 +19,7 @@ function App() {
       <Route path="/habits/history" element={<HabitHistory />} />
       <Route path="/habits/manage" element={<HabitManagement />} />
       <Route path="/habits" element={<Navigate to="/dashboard#habits" replace />} />
+      <Route path="/profile" element={<Profile />} />
     </Routes>
   );
 }

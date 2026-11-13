@@ -722,6 +722,7 @@ function Dashboard() {
             Progress
           </a>
           <Link className="dashboard-nav-link" to="/habits/manage">Manage habits</Link>
+          <Link className="dashboard-nav-link" to="/profile">Profile</Link>
           <Link className="dashboard-nav-link" to="/habits/history">Habit History</Link>
           <div className="dashboard-notifications">
             <button

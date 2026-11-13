@@ -3,6 +3,8 @@ const cors = require("cors");
 const bcrypt = require("bcrypt");
 const session = require("express-session");
 require("dotenv").config();
+const { runMigrations } = require("./migrate");
+const { createProfileRouter } = require("./profile");
 
 const pool = require("./db");
 const { createRewardsRouter } = require("./rewards");
@@ -35,7 +37,11 @@ app.use(
 
 // Reward photos are base64 JSON, capped at 2 MB after decoding.
 app.use("/api/rewards", express.json({ limit: "3mb" }));
+app.use("/api/profile", express.json({ limit: "3mb" }));
 app.use(express.json());
+
+
+
 
 app.use(
   session({
@@ -57,6 +63,17 @@ app.use(
 app.use("/api/rewards", createRewardsRouter(pool));
 app.use("/api/notifications", createNotificationsRouter(pool));
 app.use("/api/habit-targets", createHabitTargetsRouter(pool));
+app.use("/api/profile", createProfileRouter(pool));
+
+app.use("/api/profile", (error, req, res, next) => {
+  if (error.type === "entity.too.large") {
+    return res.status(413).json({ message: "Choose a picture up to 2 MB." });
+  }
+  if (error.type === "entity.parse.failed") {
+    return res.status(400).json({ message: "Invalid request." });
+  }
+  next(error);
+});
 app.use("/api/rewards", (error, _req, res, next) => {
   if (error.type === "entity.too.large") return res.status(413).json({ message: "Choose a photo up to 2 MB." });
   if (error.type === "entity.parse.failed") return res.status(400).json({ message: "Invalid JSON request." });
@@ -1387,8 +1404,10 @@ app.delete("/api/events/:id", requireSession, async (req, res) => {
 });
 
 
-app.listen(port, () => {
-  console.log(
-    `Server running on port ${port}`
-  );
-});
+runMigrations(pool)
+  .catch((error) => console.error("Database update skipped:", error.message))
+  .finally(() => {
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+    });
+  });
