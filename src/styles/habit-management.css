@@ -20,6 +20,12 @@
 .management-details strong { color: #112f66; font-size: 16px; }
 .management-details span, .management-muted { color: #7184a5; font-size: 13px; }
 .management-muted { margin: -6px 0 18px; }
+.habit-target-editor { display: grid; gap: 9px; margin-top: 8px; max-width: 100%; }
+.habit-target-actions, .habit-target-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.habit-target-form label { flex-basis: 100%; font-size: 13px; font-weight: 700; }
+.habit-target-form input { width: min(100%, 170px); min-width: 0; padding: 10px; border: 1px solid #c4d7e7; border-radius: 9px; font: inherit; }
+.habit-target-form input:focus-visible { outline: 3px solid #5db5f4; outline-offset: 2px; }
+.management-details { max-width: 100%; }
 .management-actions, .management-dialog-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .management-edit-form { display: flex; flex: 1 1 450px; justify-content: flex-end; align-items: end; gap: 10px; flex-wrap: wrap; }
 .management-edit-form label { display: flex; flex: 1 1 130px; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 700; color: #60749a; }
