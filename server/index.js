@@ -6,6 +6,7 @@ require("dotenv").config();
 
 const pool = require("./db");
 const { createRewardsRouter } = require("./rewards");
+const { createNotificationsRouter } = require("./notifications");
 const { createHabitTargetsRouter } = require("./habitTargets");
 const { HABIT_GROUPS, findHabitGroup, validateSelectedHabits, addHabitsFromGroup } = require("./habitGroups");
 const { setSchedule, getHistory } = require("./habitHistory");
@@ -54,6 +55,7 @@ app.use(
 );
 
 app.use("/api/rewards", createRewardsRouter(pool));
+app.use("/api/notifications", createNotificationsRouter(pool));
 app.use("/api/habit-targets", createHabitTargetsRouter(pool));
 app.use("/api/rewards", (error, _req, res, next) => {
   if (error.type === "entity.too.large") return res.status(413).json({ message: "Choose a photo up to 2 MB." });
