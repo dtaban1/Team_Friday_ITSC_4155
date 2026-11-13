@@ -72,3 +72,7 @@
 .management-category-chip:focus-visible, .management-group-habit:focus-within { outline: 3px solid #5db5f4; outline-offset: 2px; }
 @media (max-width: 900px) { .management-group-grid { grid-template-columns: 1fr; } }
 @media (max-width: 430px) { .management-group-card { padding: 13px; } .management-group-habit { flex-wrap: wrap; } .management-group-habit-status { margin-left: 27px; } }
+
+.management-weekdays { margin: 10px 0; padding: 8px; border: 1px solid #dde5e9; border-radius: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+.management-weekdays legend { font-size: .85rem; padding: 0 5px; }
+.management-weekdays label { font-size: .85rem; white-space: nowrap; }

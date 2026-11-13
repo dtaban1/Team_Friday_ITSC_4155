@@ -220,6 +220,7 @@ CREATE TABLE IF NOT EXISTS habit_schedule_periods (
   habit_id INT UNSIGNED NOT NULL,
   start_date DATE NOT NULL,
   end_date DATE NULL,
+  weekdays_mask TINYINT UNSIGNED NOT NULL DEFAULT 127,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   INDEX idx_schedule_user_habit (user_id, habit_kind, habit_id, end_date)
 );

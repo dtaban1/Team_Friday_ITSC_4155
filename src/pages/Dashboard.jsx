@@ -194,6 +194,8 @@ function Dashboard() {
   const [targetError, setTargetError] = useState("");
   const [pointsBalance, setPointsBalance] = useState(0);
   const [achievements, setAchievements] = useState([]);
+  const [habitStreaks, setHabitStreaks] = useState([]);
+  const [streakError, setStreakError] = useState("");
   const [achievementNotice, setAchievementNotice] = useState("");
   const [notifications, setNotifications] = useState([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
@@ -421,49 +423,18 @@ function Dashboard() {
     });
   }, [habits, today, activeStandardNames, activeCustomIds]);
 
-  const streakSummary = useMemo(() => {
-    const prevDay = (dateStr) => {
-    const [y, m, d] = dateStr.split("-").map(Number);
-    return localDateString(new Date(y, m - 1, d - 1));
-  };
-  // Today doesn't have to be logged yet; yesterday keeps the streak alive.
-  const countStreak = (dates) => {
-    let cursor = dates.has(today) ? today : prevDay(today);
-    let streak = 0;
-    while (dates.has(cursor)) {
-      streak++;
-      cursor = prevDay(cursor);
+  const loadStreaks = async (userId, date = localDateString()) => {
+    try {
+      const response = await fetch(`${API_URL}/api/users/${userId}/habit-streaks?today=${date}`, { credentials: "include" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "Could not load habit streaks.");
+      setHabitStreaks(Array.isArray(data) ? data : []);
+      setStreakError("");
+    } catch (error) {
+      setStreakError(error.message);
     }
-    return streak;
   };
-  const allDates = new Set();
-  const byHabit = new Map();
-
-  for (const entry of habits) {
-    if (!isActiveEntry(entry)) continue;
-
-      const date = String(entry.entryDate).slice(0, 10);
-    if (date > today) continue;
-
-    const key = entry.customHabitId != null
-      ? `custom:${entry.customHabitId}`
-      : `standard:${String(entry.habit).toLowerCase()}`;
-
-    allDates.add(date);
-    if (!byHabit.has(key)) byHabit.set(key, { name: entry.habit, dates: new Set() });
-    byHabit.get(key).dates.add(date);
-  }
-  const topHabits = [...byHabit.values()]
-    .map(({ name, dates }) => ({
-      name,
-      streak: countStreak(dates),
-      entries: dates.size,
-    }))
-    .sort((a, b) => b.streak - a.streak || b.entries - a.entries || a.name.localeCompare(b.name))
-    .slice(0, 2);
-
-  return { overall: countStreak(allDates), topHabits };
-}, [habits, today, activeStandardNames, activeCustomIds]);
+  useEffect(() => { if (user?.id) loadStreaks(user.id, today); }, [user?.id, today]);
 
   const completedHabitNames = useMemo(
     () => new Set(todaysHabits.map((entry) => entry.customHabitId != null
@@ -547,6 +518,7 @@ function Dashboard() {
       ]);
 
       await loadHabitEntries(user.id);
+      await loadStreaks(user.id);
       const pointResponse = await fetch(`${API_URL}/api/points`, { credentials: "include" });
       if (pointResponse.ok) {
         const pointData = await pointResponse.json();
@@ -937,22 +909,30 @@ function Dashboard() {
         <article className="dashboard-stat-card">
           <span className="dashboard-stat-icon amber" aria-hidden="true">▲</span>
           <div>
-            <strong>{streakSummary.overall}</strong>
-            <span>day overall streak</span>
+            <strong>{habitStreaks.filter((habit) => habit.isActive).reduce((max, habit) => Math.max(max, habit.currentStreak), 0)}</strong>
+            <span>highest current habit streak</span>
           </div>
         </article>
 
-        {streakSummary.topHabits.map((item) => (
-          <article className="dashboard-stat-card" key={item.name}>
-           <span className="dashboard-stat-icon amber" aria-hidden="true">▲</span>
-           <div>
-             <strong>{item.streak}</strong>
-             <span>{item.name} streak</span>
-           </div>
-          </article>
-        ))}
-
         </section>
+
+        <article className="dashboard-card" id="streaks">
+          <div className="dashboard-card-heading"><div>
+            <span className="dashboard-card-label">Consistency</span>
+            <h2>Habit streaks</h2>
+          </div></div>
+          <p>Streaks count scheduled check-ins. Unscheduled days do not break your streak.</p>
+          {streakError && <p role="alert">{streakError}</p>}
+          <div className="dashboard-recent-list">
+            {habitStreaks.filter((habit) => habit.isActive).map((habit) => (
+              <div className="dashboard-recent-row" key={`${habit.kind}:${habit.habitId}`}>
+                <strong>{habit.name}</strong>
+                <span aria-label={`Current streak: ${habit.currentStreak}`}>▲ Current: {habit.currentStreak}</span>
+                <span aria-label={`Longest streak: ${habit.longestStreak}`}>★ Best: {habit.longestStreak}</span>
+              </div>
+            ))}
+          </div>
+        </article>
 
         <article className="dashboard-card dashboard-achievements-card" id="achievements">
           <div className="dashboard-card-heading">

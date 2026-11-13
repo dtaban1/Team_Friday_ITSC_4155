@@ -7,6 +7,12 @@ import { habitTargetKey } from "../habitTargetProgress.mjs";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
+const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function localToday() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+}
+
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     credentials: "include",
@@ -39,6 +45,27 @@ function HabitManagement() {
   const [groupSelections, setGroupSelections] = useState({});
   const [groupCategory, setGroupCategory] = useState("All");
   const [targets, setTargets] = useState({});
+  const [accountId, setAccountId] = useState(null);
+  const [streaks, setStreaks] = useState({});
+
+  const loadSchedules = async (id) => {
+    const data = await apiRequest(`/api/users/${id}/habit-streaks?today=${localToday()}`);
+    setStreaks(Object.fromEntries(data.map(h => [`${h.kind}:${h.habitId}`,h])));
+  };
+
+  const changeSchedule = async (habit, newMask) => {
+    if (!newMask || !accountId) return;
+    resetNotice();
+    setBusy(true);
+    try {
+      await apiRequest(`/api/users/${accountId}/habit-schedules/${habit.kind}/${habit.id}`,{
+        method:'PATCH',body:JSON.stringify({weekdaysMask:newMask,today:localToday()})
+      });
+      await loadSchedules(accountId);
+      setMessage(`Updated ${habit.name}'s scheduled days. Previous schedules are preserved.`);
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  };
 
   const loadHabits = async () => {
     const [data, targetData] = await Promise.all([
@@ -51,7 +78,10 @@ function HabitManagement() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [, groups] = await Promise.all([loadHabits(), apiRequest("/api/habit-groups")]);
+        const [session, groups] = await Promise.all([apiRequest("/api/session"), apiRequest("/api/habit-groups")]);
+        const id = session.user.id;
+        setAccountId(id);
+        await Promise.all([loadHabits(), loadSchedules(id)]);
         setHabitGroups(groups);
         setGroupSelections(Object.fromEntries(groups.map((group) => [
           group.id, group.habits.map((habit) => habit.id),
@@ -336,6 +366,17 @@ function HabitManagement() {
                       <div className="management-details">
                         <strong>{habit.name}</strong>
                         <span>{habit.unit} · {habit.kind === "standard" ? "Built-in habit" : "Custom habit"}</span>
+                        <fieldset className="management-weekdays" disabled={busy}>
+                          <legend>Scheduled check-in days</legend>
+                          {WEEKDAYS.map((day, index) => {
+                            const mask = streaks[`${habit.kind}:${habit.id}`]?.weekdaysMask ?? 127;
+                            return <label key={day}>
+                              <input type="checkbox" checked={Boolean(mask & (1 << index))}
+                                onChange={() => changeSchedule(habit, mask ^ (1 << index))} /> {day}
+                            </label>;
+                          })}
+                        </fieldset>
+
                         <HabitTargetEditor habit={habit} target={targets[habitTargetKey(habit.kind, habit.id)]}
                           busy={busy || editing !== null} onSave={changeTarget} onRemove={(item) => changeTarget(item, null)} />
                       </div>
