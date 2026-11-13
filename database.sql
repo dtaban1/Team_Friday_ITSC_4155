@@ -221,4 +221,27 @@ CREATE TABLE IF NOT EXISTS habit_schedule_periods (
   INDEX idx_schedule_user_habit (user_id, habit_kind, habit_id, end_date)
 );
 
+-- Notifications: upcoming tasks, overdue tasks, and unfinished daily habits.
+-- The unique trigger key prevents duplicate reminders for the same event.
+CREATE TABLE IF NOT EXISTS notifications (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  notification_type ENUM('task_upcoming', 'task_overdue', 'habit_unfinished') NOT NULL,
+  source_type ENUM('task', 'habit', 'custom_habit') NOT NULL,
+  source_id BIGINT UNSIGNED NOT NULL,
+  trigger_key VARCHAR(64) NOT NULL,
+  title VARCHAR(160) NOT NULL,
+  message VARCHAR(500) NOT NULL,
+  link VARCHAR(255) NOT NULL,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  read_at TIMESTAMP NULL DEFAULT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_notification_trigger
+    (user_id, notification_type, source_type, source_id, trigger_key),
+  INDEX idx_notifications_user_unread (user_id, is_read, created_at),
+  INDEX idx_notifications_user_created (user_id, created_at)
+);
+
 SHOW TABLES LIKE 'habit_schedule_periods';
+SHOW TABLES LIKE 'notifications';

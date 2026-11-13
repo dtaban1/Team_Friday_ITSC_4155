@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const USER_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
 
 function localDateString(date = new Date()) {
@@ -189,6 +190,10 @@ function Dashboard() {
   const [pointsBalance, setPointsBalance] = useState(0);
   const [achievements, setAchievements] = useState([]);
   const [achievementNotice, setAchievementNotice] = useState("");
+  const [notifications, setNotifications] = useState([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationError, setNotificationError] = useState("");
 
   // Keep the dashboard's definition of "today" aligned with the user's local
   // calendar date even if the page stays open across midnight.
@@ -216,6 +221,26 @@ function Dashboard() {
     const entries = Array.isArray(data) ? data : [];
     setHabits(entries);
     return entries;
+  };
+
+  const loadNotifications = async (signal) => {
+    const response = await fetch(
+      `${API_URL}/api/notifications?timeZone=${encodeURIComponent(USER_TIME_ZONE)}`,
+      { credentials: "include", signal }
+    );
+    const data = await response.json().catch(() => ({}));
+
+    if (response.status === 401) {
+      navigate("/login", { replace: true });
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(data.message || "Could not load notifications.");
+    }
+
+    setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+    setUnreadNotificationCount(Number(data.unreadCount || 0));
+    setNotificationError("");
   };
 
   useEffect(() => {
@@ -283,6 +308,14 @@ function Dashboard() {
         setPointsBalance(Number(pointData.balance || 0));
         const achievementData = await achievementResponse.json();
         setAchievements(Array.isArray(achievementData.achievements) ? achievementData.achievements : []);
+
+        try {
+          await loadNotifications(controller.signal);
+        } catch (notificationLoadError) {
+          if (notificationLoadError.name !== "AbortError") {
+            setNotificationError(notificationLoadError.message);
+          }
+        }
         
 
       } catch (loadError) {
@@ -302,6 +335,26 @@ function Dashboard() {
 
     return () => controller.abort();
   }, [navigate]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const refresh = () => {
+      loadNotifications().catch((notificationLoadError) => {
+        if (notificationLoadError.name !== "AbortError") {
+          setNotificationError(notificationLoadError.message);
+        }
+      });
+    };
+
+    const timer = window.setInterval(refresh, 60 * 1000);
+    window.addEventListener("focus", refresh);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [user?.id]);
 
   // Archived habits remain in `habits` for history, but are excluded from daily tracking.
   const activeStandardNames = useMemo(
@@ -492,6 +545,45 @@ function Dashboard() {
     }
   };
 
+  const markNotificationRead = async (id) => {
+    const current = notifications.find((notification) => notification.id === id);
+    if (!current || current.isRead) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/notifications/${id}/read`, {
+        method: "PATCH",
+        credentials: "include",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "Could not mark notification as read.");
+
+      setNotifications((items) => items.map((notification) =>
+        notification.id === id ? { ...notification, isRead: true } : notification
+      ));
+      setUnreadNotificationCount(Number(data.unreadCount || 0));
+      setNotificationError("");
+    } catch (readError) {
+      setNotificationError(readError.message);
+    }
+  };
+
+  const markAllNotificationsRead = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/notifications/read-all`, {
+        method: "PATCH",
+        credentials: "include",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "Could not mark notifications as read.");
+
+      setNotifications((items) => items.map((notification) => ({ ...notification, isRead: true })));
+      setUnreadNotificationCount(0);
+      setNotificationError("");
+    } catch (readError) {
+      setNotificationError(readError.message);
+    }
+  };
+
   const handleLogout = async () => {
     setIsLoggingOut(true);
     setError("");
@@ -524,6 +616,9 @@ function Dashboard() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || `Could not create ${endpoint.slice(0, -1)}.`);
     setter((current) => [...current, data]);
+    if (endpoint === "tasks") {
+      await loadNotifications().catch((notificationLoadError) => setNotificationError(notificationLoadError.message));
+    }
   };
 
   const togglePlanningItem = async (endpoint, item, setter) => {
@@ -608,6 +703,79 @@ function Dashboard() {
           </a>
           <Link className="dashboard-nav-link" to="/habits/manage">Manage habits</Link>
           <Link className="dashboard-nav-link" to="/habits/history">Habit History</Link>
+          <div className="dashboard-notifications">
+            <button
+              className="dashboard-notification-bell"
+              type="button"
+              aria-label={`${unreadNotificationCount} unread notifications`}
+              aria-expanded={notificationsOpen}
+              aria-controls="dashboard-notification-panel"
+              onClick={() => setNotificationsOpen((open) => !open)}
+            >
+              <span aria-hidden="true">🔔</span>
+              {unreadNotificationCount > 0 && (
+                <span className="dashboard-notification-badge">
+                  {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                </span>
+              )}
+            </button>
+
+            {notificationsOpen && (
+              <div
+                className="dashboard-notification-panel"
+                id="dashboard-notification-panel"
+                aria-label="Notifications"
+              >
+                <div className="dashboard-notification-heading">
+                  <div>
+                    <strong>Notifications</strong>
+                    <span>{unreadNotificationCount} unread</span>
+                  </div>
+                  {unreadNotificationCount > 0 && (
+                    <button type="button" onClick={markAllNotificationsRead}>Mark all read</button>
+                  )}
+                </div>
+
+                {notificationError && (
+                  <p className="dashboard-notification-error" role="alert">{notificationError}</p>
+                )}
+
+                {notifications.length === 0 ? (
+                  <p className="dashboard-notification-empty">You&apos;re all caught up.</p>
+                ) : (
+                  <div className="dashboard-notification-list">
+                    {notifications.map((notification) => (
+                      <article
+                        className={`dashboard-notification-item ${notification.isRead ? "is-read" : "is-unread"}`}
+                        key={notification.id}
+                      >
+                        <div className="dashboard-notification-copy">
+                          <strong>{notification.title}</strong>
+                          <p>{notification.message}</p>
+                        </div>
+                        <div className="dashboard-notification-actions">
+                          <Link
+                            to={notification.link}
+                            onClick={() => {
+                              markNotificationRead(notification.id);
+                              setNotificationsOpen(false);
+                            }}
+                          >
+                            View activity
+                          </Link>
+                          {!notification.isRead && (
+                            <button type="button" onClick={() => markNotificationRead(notification.id)}>
+                              Mark read
+                            </button>
+                          )}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <button
             className="dashboard-logout"
             type="button"
