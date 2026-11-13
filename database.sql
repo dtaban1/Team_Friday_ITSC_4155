@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) UNIQUE NOT NULL,
   first_name VARCHAR(50) NULL,
   last_name VARCHAR(50) NULL,
+  bio VARCHAR(500) NULL,
+  profile_picture MEDIUMBLOB NULL,
+  profile_picture_type VARCHAR(20) NULL,
   password_hash VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -241,6 +244,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     (user_id, notification_type, source_type, source_id, trigger_key),
   INDEX idx_notifications_user_unread (user_id, is_read, created_at),
   INDEX idx_notifications_user_created (user_id, created_at)
+);
 -- Personal quantities for built-in and custom habits (Issue #52).
 CREATE TABLE IF NOT EXISTS habit_targets (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
