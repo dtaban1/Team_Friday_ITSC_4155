@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
 import "../styles/habit-management.css";
+import HabitTargetEditor from "../components/HabitTargetEditor.jsx";
+import { habitTargetKey } from "../habitTargetProgress.mjs";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -36,10 +38,14 @@ function HabitManagement() {
   const [habitGroups, setHabitGroups] = useState([]);
   const [groupSelections, setGroupSelections] = useState({});
   const [groupCategory, setGroupCategory] = useState("All");
+  const [targets, setTargets] = useState({});
 
   const loadHabits = async () => {
-    const data = await apiRequest("/api/habit-management");
+    const [data, targetData] = await Promise.all([
+      apiRequest("/api/habit-management"), apiRequest("/api/habit-targets"),
+    ]);
     setHabits([...data.standard, ...data.custom]);
+    setTargets(Object.fromEntries(targetData.map((target) => [habitTargetKey(target.kind, target.habitId), target.target])));
   };
 
   useEffect(() => {
@@ -140,6 +146,26 @@ function HabitManagement() {
     setEditUnit(habit.unit);
   };
 
+  const changeTarget = async (habit, target) => {
+    resetNotice();
+    setBusy(true);
+    try {
+      const result = await apiRequest(`/api/habit-targets/${habit.kind}/${habit.id}`, {
+        method: target === null ? "DELETE" : "PUT",
+        ...(target === null ? {} : { body: JSON.stringify({ target }) }),
+      });
+      setTargets((current) => ({ ...current, [habitTargetKey(habit.kind, habit.id)]: result.target }));
+      setMessage(target === null
+        ? `Daily target removed for “${habit.name}”. All entries are kept.`
+        : `Daily target for “${habit.name}” saved: ${result.target} ${habit.unit}. All entries are kept.`);
+      return true;
+    } catch (requestError) {
+      if (requestError.status === 401) navigate("/login", { replace: true });
+      else setError(requestError.message);
+      return false;
+    } finally { setBusy(false); }
+  };
+
   const handleEdit = async (event) => {
     event.preventDefault();
     resetNotice();
@@ -207,7 +233,7 @@ function HabitManagement() {
           <div>
             <span className="dashboard-kicker">Make it yours</span>
             <h1>Manage your habits</h1>
-            <p>Add a new habit, edit a custom habit, or remove one from daily tracking.</p>
+            <p>Add habits, set personal daily targets, or edit your daily tracking. Targets compare your saved quantities without changing your past entries.</p>
           </div>
           <Link to="/dashboard#habits" className="management-back">← Back to dashboard</Link>
         </div>
@@ -310,6 +336,8 @@ function HabitManagement() {
                       <div className="management-details">
                         <strong>{habit.name}</strong>
                         <span>{habit.unit} · {habit.kind === "standard" ? "Built-in habit" : "Custom habit"}</span>
+                        <HabitTargetEditor habit={habit} target={targets[habitTargetKey(habit.kind, habit.id)]}
+                          busy={busy || editing !== null} onSave={changeTarget} onRemove={(item) => changeTarget(item, null)} />
                       </div>
                       {editing === habit.id && habit.kind === "custom" ? (
                         <form className="management-edit-form" onSubmit={handleEdit}>
@@ -345,6 +373,8 @@ function HabitManagement() {
                       <div className="management-details">
                         <strong>{habit.name}</strong>
                         <span>{habit.unit}</span>
+                        {targets[habitTargetKey(habit.kind, habit.id)] != null &&
+                          <span>Saved daily target: {targets[habitTargetKey(habit.kind, habit.id)]} {habit.unit}</span>}
                       </div>
                       <button className="management-secondary" type="button" disabled={busy || editing !== null}
                         onClick={() => changeVisibility(habit, true)}>Restore</button>

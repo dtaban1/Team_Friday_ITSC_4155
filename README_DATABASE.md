@@ -6,6 +6,9 @@
 
 # Database Setup Guide (Local MySQL)
 
+For Custom Habit Targets (Issue #52), existing databases also need the additive
+`server/migrate_habit_targets.sql` migration. See [target setup and checks](README_TARGETS.md).
+
 For the personal rewards feature (Issue #44), existing databases also need
 `server/migrate_rewards.sql`. See [Rewards setup and claim rules](README_REWARDS.md).
 
