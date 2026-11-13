@@ -12,6 +12,7 @@ const { createNotificationsRouter } = require("./notifications");
 const { createHabitTargetsRouter } = require("./habitTargets");
 const { HABIT_GROUPS, findHabitGroup, validateSelectedHabits, addHabitsFromGroup } = require("./habitGroups");
 const { setSchedule, getHistory } = require("./habitHistory");
+const { getUserStreaks, dayNumber, dateString } = require("./habitStreaks");
 const { habitSaveTransaction, isDeadlock } = require("./habitSaveTransaction");
 
 const app = express();
@@ -1007,86 +1008,76 @@ app.delete(
 );
 
 
-// GET STREAK FOR A SPECIFIC HABIT
-app.get(
-  "/api/users/:userId/habits/:habitName/streak",
-  requireOwnHabitAccount,
-  async (req, res) => {
-    const userId = parseUserId(req.params.userId);
-    const habitName = String(req.params.habitName || "").toLowerCase();
-
-    if (!userId) {
-      return res.status(400).json({
-        message: "Invalid user id",
-      });
-    }
-
-    try {
-      if (!(await userExists(userId))) {
-        return res.status(404).json({
-          message: "User not found",
-        });
-      }
-
-      const [habitRows] = await pool.query(
-        `SELECT id FROM habit_types WHERE name = ? LIMIT 1`,
-        [habitName]
-      );
-
-      if (habitRows.length === 0) {
-        return res.status(404).json({
-          message: "Unknown habit type",
-        });
-      }
-
-      const habitTypeId = habitRows[0].id;
-
-      const [entries] = await pool.query(
-        `SELECT entry_date
-         FROM habit_entries
-         WHERE user_id = ? AND habit_type_id = ? AND entry_date <= CURDATE()
-         ORDER BY entry_date DESC`,
-        [userId, habitTypeId]
-      );
-
-      let streak = 0;
-      let expectedDate = new Date();
-      expectedDate.setHours(0, 0, 0, 0);
-
-      for (const row of entries) {
-        const entryDate = new Date(row.entry_date);
-        entryDate.setHours(0, 0, 0, 0);
-
-        const diffDays = Math.round(
-          (expectedDate - entryDate) / (1000 * 60 * 60 * 24)
-        );
-
-        if (diffDays === 0) {
-          streak++;
-          expectedDate.setDate(expectedDate.getDate() - 1);
-        } else if (diffDays === 1 && streak === 0) {
-          streak++;
-          expectedDate = new Date(entryDate);
-          expectedDate.setDate(expectedDate.getDate() - 1);
-        } else {
-          break;
-        }
-      }
-
-      res.json({
-        userId,
-        habit: habitName,
-        streak,
-      });
-    } catch (error) {
-      console.error(error);
-
-      res.status(500).json({
-        message: "Could not calculate streak",
-      });
-    }
+// Habit streaks for this account, using the browser's local calendar day.
+app.get('/api/users/:userId/habit-streaks', requireOwnHabitAccount, async (req, res) => {
+  const today = req.query.today || new Date().toISOString().slice(0, 10);
+  try {
+    dayNumber(today);
+    res.json(await getUserStreaks(pool, Number(req.params.userId), today));
+  } catch (error) {
+    if (error.message === 'Invalid local date') return res.status(400).json({ message: error.message });
+    console.error(error);
+    res.status(500).json({ message: 'Could not load streaks. Apply the habit streaks migration.' });
   }
-);
+});
+
+// Replace the current schedule while preserving previous periods for historic streaks.
+app.patch('/api/users/:userId/habit-schedules/:kind/:habitId', requireOwnHabitAccount, async (req, res) => {
+  const { kind, habitId: rawId } = req.params;
+  const habitId = parseUserId(rawId);
+  const weekdaysMask = req.body?.weekdaysMask;
+  const today = req.body?.today;
+  if (!['standard','custom'].includes(kind) || !habitId || !Number.isInteger(weekdaysMask) || weekdaysMask < 1 || weekdaysMask > 127) {
+    return res.status(400).json({ message: 'Select at least one scheduled weekday.' });
+  }
+  try { dayNumber(today); } catch (_) { return res.status(400).json({ message: 'Invalid local date.' }); }
+  const userId = Number(req.params.userId);
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [owned] = await connection.query(kind === 'custom'
+      ? 'SELECT id FROM custom_habits WHERE id=? AND user_id=? AND is_active=1'
+      : `SELECT ht.id FROM habit_types ht LEFT JOIN user_hidden_habit_types h
+         ON h.habit_type_id=ht.id AND h.user_id=? WHERE ht.id=? AND h.user_id IS NULL`,
+      kind === 'custom' ? [habitId,userId] : [userId,habitId]);
+    if (!owned.length) { await connection.rollback(); return res.status(404).json({ message: 'Active habit not found.' }); }
+    const [open] = await connection.query(`SELECT id, DATE_FORMAT(start_date,'%Y-%m-%d') AS startDate, weekdays_mask AS mask
+      FROM habit_schedule_periods WHERE user_id=? AND habit_kind=? AND habit_id=? AND end_date IS NULL FOR UPDATE`, [userId,kind,habitId]);
+    if (open.some(p => p.startDate > today)) { await connection.rollback(); return res.status(409).json({ message: 'Schedule date precedes active schedule.' }); }
+    if (open.length === 1 && Number(open[0].mask) === weekdaysMask) { await connection.commit(); return res.json({ kind,habitId,weekdaysMask }); }
+    for (const period of open) {
+      if (period.startDate === today) {
+        await connection.query('DELETE FROM habit_schedule_periods WHERE id=?', [period.id]);
+      } else {
+        await connection.query('UPDATE habit_schedule_periods SET end_date=? WHERE id=?', [dateString(dayNumber(today)-1),period.id]);
+      }
+    }
+    await connection.query(`INSERT INTO habit_schedule_periods
+      (user_id, habit_kind, habit_id, start_date, weekdays_mask) VALUES (?,?,?,?,?)`, [userId,kind,habitId,today,weekdaysMask]);
+    await connection.commit();
+    res.json({kind,habitId,weekdaysMask});
+  } catch (error) {
+    if (connection) await connection.rollback();
+    console.error(error);
+    res.status(500).json({message:'Could not update schedule.'});
+  } finally { if (connection) connection.release(); }
+});
+
+// Backwards-compatible named built-in habit streak URL.
+app.get('/api/users/:userId/habits/:habitName/streak', requireOwnHabitAccount, async (req, res) => {
+  try {
+    const today = req.query.today || new Date().toISOString().slice(0,10);
+    dayNumber(today);
+    const streaks = await getUserStreaks(pool, Number(req.params.userId),today);
+    const habit = streaks.find(h => h.kind === 'standard' && h.name.toLowerCase() === req.params.habitName.toLowerCase());
+    if (!habit) return res.status(404).json({message:'Unknown habit type.'});
+    res.json({userId:Number(req.params.userId),habit:habit.name,streak:habit.currentStreak, ...habit});
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({message:'Could not calculate streak.'});
+  }
+});
 
 function requireSession(req, res, next) {
   if (!req.session.userId) {

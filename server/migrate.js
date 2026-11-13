@@ -32,6 +32,7 @@ async function ensureColumn(pool, table, column, definition) {
 
 async function runMigrations(pool) {
   await applySchemaFile();
+  await ensureColumn(pool, "habit_schedule_periods", "weekdays_mask", "TINYINT UNSIGNED NOT NULL DEFAULT 127");
   await ensureColumn(pool, "users", "first_name", "VARCHAR(50) NULL AFTER email");
   await ensureColumn(pool, "users", "last_name", "VARCHAR(50) NULL AFTER first_name");
   await ensureColumn(pool, "users", "bio", "VARCHAR(500) NULL AFTER last_name");
